@@ -1,6 +1,6 @@
 from cvxpy import Minimize, Problem, quad_form, sum_squares, Variable
-from numpy import dot, reshape, zeros
-from numpy.linalg import norm, solve
+from numpy import dot, identity, reshape, zeros
+from numpy.linalg import eigvals, norm, solve
 from numpy.random import multivariate_normal
 
 from dynamics import AffineQuadCLF
@@ -224,74 +224,169 @@ class LQRController(Controller):
         return LQRController(affine_linearizable_dynamics, lyap.P, R)
 
 class QPController(Controller):
-    """Class for QP-based controllers."""
+    """Class for controllers solving quadratic programs (QPs).
 
-    def __init__(self, affine_dynamics, affine_quad_clf, Q, cost_mat, reg_coeff=0, reg_controller=None):
-        """Construct a QPController object.
+    QPs are solved using cvxpy.
+    """
 
-        Policy minimizes u' * cost_mat * u + reg_coeff * || u - reg_controller || ^ 2
-        subject to V_dot <= -x' * P * x.
+    def __init__(self, affine_dynamics, m):
+        """Create a QPController object.
 
         Inputs:
         Affine dynamics, affine_dynamics: AffineDynamics
-        Quadratic CLF, affine_quad_clf: AffineQuadCLF
-        Positive-definite state cost, Q: numpy array
-        Positive-definite action cost, cost_mat: numpy array
-        Non-negative regularization coefficient, reg_coeff: float
-        Regularizing controller, reg_controller: Controller
+        Number of actions, m: int
         """
 
         Controller.__init__(self, affine_dynamics)
-        self.lyap = affine_quad_clf
-        self.Q = Q
-        self.cost_mat = cost_mat
-        self.reg_coeff = reg_coeff
-        if reg_controller is None:
-            reg_controller = ConstantController(affine_dynamics, zeros(len(cost_mat)))
-        self.reg_controller = reg_controller
-        self.u = Variable(len(cost_mat))
+        self.m = m
+        self.u = Variable(m)
+        self.variables = []
+        self.static_costs = []
+        self.dynamic_costs = []
+        self.constraints = []
 
-    def eval(self, x, t):
-        z = self.dynamics.eval(x, t)
-        obj = Minimize(quad_form(self.u, self.cost_mat) + self.reg_coeff * sum_squares(self.u - self.reg_controller.eval(x, t)) ** 2)
-        cons = [self.lyap.drift(x, t) + self.lyap.act(x, t) * self.u <= -dot(z, dot(self.Q, z))]
-        prob = Problem(obj, cons)
-        prob.solve(warm_start=True)
-        return self.u.value
-
-    def build_care(affine_linearizable_dynamics, Q, R, cost_mat, reg_coeff=0, reg_controller=None):
-        """Create a QPController by solving continuous-time algebraic Riccati equation (CARE).
-
-        CARE is F' * P + P * F - P * G * R^-1 * G' * P = -Q.
+    def add_static_cost(self, P=None, q=None, r=0):
+        """Add term to cost of the form u' * P * u + q' * u + r
 
         Inputs:
-        Affine and linearizable dynamics, affine_linearizable_dynamics: AffineDynamics, LinearizableDynamics
-        Positive-definite state cost matrix, Q: numpy array
-        Positive-definite auxilliary action cost matrix, R: numpy array
-        Positive-definite action cost matrix, cost_mat: numpy array
-        Non-negative regularization coefficient, reg_coeff: float
-        Regularizing controller, reg_controller: Controller
+        Quadratic term, P: numpy array
+        Linear term, q: numpy array
+        Constant term, r: float
         """
 
-        lyap = AffineQuadCLF.build_care(affine_linearizable_dynamics, Q, R)
-        return QPController(affine_linearizable_dynamics, lyap, Q, cost_mat, reg_coeff, reg_controller)
+        if P is None:
+            P = zeros((self.m, self.m))
+        if q is None:
+            q = zeros(self.m)
+        cost = quad_form(self.u, P) + q * self.u + r
+        self.static_costs.append(cost)
 
-    def build_ctle(affine_linearizable_dynamics, K, Q, cost_mat, reg_coeff=0, reg_controller=None):
-        """Create a QPController by solving continuous-time Lyapunov equation (CTLE).
-
-        CTLE is A' * P + P * A = -Q, where A = F - G * K is closed-loop matrix.
+    def add_dynamic_cost(self, P, q, r):
+        """Add term to cost of the form u' * P(x, t) * u + q(x, t)' * u + r(x, t)
 
         Inputs:
-        Affine and linearizable dynamics, affine_linearizable_dynamics: AffineDynamics, LinearizableDynamics
+        Quadratic term, P: numpy array * float -> numpy array
+        Linear term, q: numpy array * float -> numpy array
+        Constant term, r: numpy array * float -> float
+        """
+
+        if P is None:
+            P = lambda x, t: zeros((self.m, self.m))
+        if q is None:
+            q = lambda x, t: zeros(self.m)
+        if r is None:
+            r = lambda x, t: 0
+        cost = lambda x, t: quad_form(self.u, P(x, t)) + q(x, t) * self.u + r(x, t)
+        self.dynamic_costs.append(cost)
+
+    def add_regularizer(self, controller, coeff=1):
+        """Add 2-norm regularizer about another controller to cost
+
+        Inputs:
+        Controller, controller: Controller
+        Regularizer weight, coeff: float
+        """
+
+        cost = lambda x, t: coeff * sum_squares(self.u - controller.process(controller.eval(x, t)))
+        self.dynamic_costs.append(cost)
+
+    def add_stability_constraint(self, aff_lyap, comp=None, slacked=False, coeff=0):
+        """Add Lyapunov function derivative constraint
+
+        Inputs:
+        Affine Lyapunov function: AffineDynamics, ScalarDynamics
+        Class-K comparison function, comp: float -> float
+        Flag for slacking constraint, slacked: bool
+        Coefficient for slack variable in cost function, coeff: float
+        """
+
+        if comp is None:
+            comp = lambda r: 0
+        if slacked:
+            delta = Variable()
+            self.variables.append(delta)
+            self.static_cost.append(coeff * square(delta))
+            constraint = lambda x, t: aff_lyap.drift(x, t) + aff_lyap.act(x, t) * self.u <= -comp(aff_lyap.eval(x, t)) + delta
+        else:
+            constraint = lambda x, t: aff_lyap.drift(x, t) + aff_lyap.act(x, t) * self.u <= -comp(aff_lyap.eval(x, t))
+        self.constraints.append(constraint)
+
+    def add_safety_constraint(self, aff_safety, comp=None, slacked=False, coeff=0):
+        """Add safety function derivative constraint
+
+        Inputs:
+        Affine safety function: AffineDynamics, ScalarDynamics
+        Class-K comparison function, comp: float -> float
+        Flag for slacking constraint, slacked: bool
+        Coefficient for slack variable in cost function, coeff: float
+        """
+
+        if comp is None:
+            comp = lambda r: 0
+        if slacked:
+            delta = Variable()
+            self.variables.append(delta)
+            self.static_cost.append(coeff * square(delta))
+            constraint = lambda x, t: aff_safety.drift(x, t) + aff_safety.act(x, t) * self.u >= -comp(aff_safety.eval(x, t)) - delta
+        else:
+            constraint = lambda x, t: aff_safety.drift(x, t) + aff_safety.act(x, t) * self.u >= -comp(aff_safety.eval(x, t))
+        self.constraints.append(constraint)
+
+    def build_care(aff_dynamics, Q, R):
+        """Build minimum-norm controller with stability constraint from solving CARE
+
+        Inputs:
+        Affine dynamics, aff_dynamics: AffineDynamics
+        Positive-definite state cost matrix, Q: numpy array
+        Positive-definite action cost matrix, R: numpy array
+
+        Outputs:
+        QP-based controller: QPController
+        """
+
+        return QPController._build(aff_dynamics, None, Q, R, 'CARE')
+
+    def build_ctle(aff_dynamics, K, Q):
+        """Build minimum-norm controller with stability constraint from solving CTLE
+
+        Inputs:
+        Affine dynamics, aff_dynamics: AffineDynamics
         Gain matrix, K: numpy array
         Positive-definite state cost matrix, Q: numpy array
-        Positive-definite action cost matrix, cost_mat: numpy array
-        Non-negative regularization coefficient, reg_coeff: float
-        Regularizing controller, reg_controller: Controller
+
+        Outputs:
+        QP-based controller: QPController
         """
 
-        lyap = AffineQuadCLF.build_ctle(affine_linearizable_dynamics, K, Q)
-        return QPController(affine_linearizable_dynamics, lyap, Q, cost_mat, reg_coeff, reg_controller)
+        return QPController._build(aff_dynamics, K, Q, None, 'CTLE')
+
+    def _build(aff_dynamics, K, Q, R, method):
+        """Helper function for build_care and build_ctle"""
+
+        m = len(R)
+        qp = QPController(aff_dynamics, m)
+        qp.add_static_cost(identity(m))
+        if method is 'CARE':
+            lyap = AffineQuadCLF.build_care(aff_dynamics, Q, R)
+        elif method is 'CTLE':
+            lyap = AffineQuadCLF.build_ctle(affine_dynamics, K, Q)
+        alpha = min(eigvals(Q)) / max(eigvals(lyap.P))
+        comp = lambda r: alpha * r
+        qp.add_stability_constraint(lyap, comp)
+        return qp
+
+    def eval(self, x, t):
+        static_cost = sum(self.static_costs)
+        dynamic_cost = sum([cost(x, t) for cost in self.dynamic_costs])
+        obj = Minimize(static_cost + dynamic_cost)
+        cons = [constraint(x, t) for constraint in self.constraints]
+        prob = Problem(obj, cons)
+        prob.solve(warm_start=True)
+        return self.u.value, [variable.value for variable in self.variables]
+
+    def process(self, u):
+        u, _ = u
+        return u
 
 class EnergyController(Controller):
     """Class for energy-based controllers."""

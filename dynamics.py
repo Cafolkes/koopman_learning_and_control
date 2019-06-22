@@ -56,7 +56,7 @@ class SystemDynamics(Dynamics):
     def eval(self, x, t):
         return x
 
-    def simulate(self, x_0, controller, ts, atol=1e-6, rtol=1e-6):
+    def simulate(self, x_0, controller, ts, processed=True, atol=1e-6, rtol=1e-6):
         """Simulate system from initial state with specified controller.
 
         Approximated using Runge-Kutta 4,5 solver.
@@ -67,6 +67,7 @@ class SystemDynamics(Dynamics):
         Initial state, x_0: numpy array
         Control policy, controller: Controller
         Time steps, ts: numpy array
+        Flag to process actions, processed: bool
         Absolute tolerance, atol: float
         Relative tolerance, rtol: float
 
@@ -94,6 +95,9 @@ class SystemDynamics(Dynamics):
             t_span = [t, ts[j + 1]]
             res = solve_ivp(x_dot, t_span, x, atol=atol, rtol=rtol)
             xs[j + 1] = res.y[:, -1]
+
+        if processed:
+            us = array([controller.process(u) for u in us])
 
         return xs, us
 
@@ -406,7 +410,26 @@ class RoboticDynamics(FBLinDynamics, PDDynamics):
     def derivative(self, x, t):
         return self.eval(x, t)[self.k:]
 
-class QuadraticCLF(Dynamics):
+class ScalarDynamics(Dynamics):
+    """Abstract scalar dynamics class.
+
+    Override eval, eval_dot, eval_grad.
+    """
+
+    def eval_grad(self, x, t):
+        """Compute gradient of representation.
+
+        Inputs:
+        State, x: numpy array
+        Time, t: float
+
+        Outputs:
+        Representation: float
+        """
+
+        pass
+
+class QuadraticCLF(ScalarDynamics):
     """Class for Lyapunov functions of the form V(z) = z' * P * z."""
 
     def __init__(self, dynamics, P):
