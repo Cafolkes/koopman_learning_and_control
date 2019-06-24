@@ -363,13 +363,15 @@ class QPController(Controller):
     def _build(aff_dynamics, K, Q, R, method):
         """Helper function for build_care and build_ctle"""
 
-        m = len(R)
-        qp = QPController(aff_dynamics, m)
-        qp.add_static_cost(identity(m))
         if method is 'CARE':
+            m = len(R)
             lyap = AffineQuadCLF.build_care(aff_dynamics, Q, R)
         elif method is 'CTLE':
+            m = len(K)
+            R = identity(m)
             lyap = AffineQuadCLF.build_ctle(affine_dynamics, K, Q)
+        qp = QPController(aff_dynamics, m)
+        qp.add_static_cost(R)
         alpha = min(eigvals(Q)) / max(eigvals(lyap.P))
         comp = lambda r: alpha * r
         qp.add_stability_constraint(lyap, comp)
