@@ -458,16 +458,6 @@ class QuadraticCLF(ScalarDynamics):
         return dot(z, dot(self.P, z))
 
     def eval_grad(self, x, t):
-        """Compute (dV/dz)'.
-
-        Inputs:
-        State, x: numpy array
-        Time, t: float
-
-        Outputs:
-        Lyapunov function gradient: numpy array
-        """
-
         z = self.dynamics.eval(x, t)
         return 2 * dot(self.P, z)
 

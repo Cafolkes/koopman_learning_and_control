@@ -1,4 +1,4 @@
-from cvxpy import Minimize, Problem, quad_form, sum_squares, Variable
+from cvxpy import Minimize, Problem, quad_form, square, sum_squares, Variable
 from numpy import dot, identity, reshape, zeros
 from numpy.linalg import eigvals, norm, solve
 from numpy.random import multivariate_normal
@@ -305,7 +305,7 @@ class QPController(Controller):
         if slacked:
             delta = Variable()
             self.variables.append(delta)
-            self.static_cost.append(coeff * square(delta))
+            self.static_costs.append(coeff * square(delta))
             constraint = lambda x, t: aff_lyap.drift(x, t) + aff_lyap.act(x, t) * self.u <= -comp(aff_lyap.eval(x, t)) + delta
         else:
             constraint = lambda x, t: aff_lyap.drift(x, t) + aff_lyap.act(x, t) * self.u <= -comp(aff_lyap.eval(x, t))
@@ -326,7 +326,7 @@ class QPController(Controller):
         if slacked:
             delta = Variable()
             self.variables.append(delta)
-            self.static_cost.append(coeff * square(delta))
+            self.static_costs.append(coeff * square(delta))
             constraint = lambda x, t: aff_safety.drift(x, t) + aff_safety.act(x, t) * self.u >= -comp(aff_safety.eval(x, t)) - delta
         else:
             constraint = lambda x, t: aff_safety.drift(x, t) + aff_safety.act(x, t) * self.u >= -comp(aff_safety.eval(x, t))
