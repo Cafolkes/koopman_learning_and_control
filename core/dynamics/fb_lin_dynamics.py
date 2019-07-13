@@ -1,4 +1,4 @@
-from numpy import argsort, cumsum, diag, identity, ones
+from numpy import arange, argsort, cumsum, diag, identity, ones
 from scipy.linalg import block_diag
 
 from .affine_dynamics import AffineDynamics
