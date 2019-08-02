@@ -1,32 +1,31 @@
 from numpy import array, concatenate, dot, reshape, zeros
 from numpy.linalg import solve
 
-from .fb_lin_dynamics import FBLinDynamics
+from .affine_dynamics import AffineDynamics
 from .pd_dynamics import PDDynamics
+from .system_dynamics import SystemDynamics
 
-class RoboticDynamics(FBLinDynamics, PDDynamics):
-    """Abstract class for Euler-Lagrange systems.
+class RoboticDynamics(SystemDynamics, AffineDynamics, PDDynamics):
+    """Abstract class for unconstrained Euler-Lagrange systems.
 
     State represented as x = (q, q_dot), where q are generalized coordinates and
     q_dot are corresponding rates.
 
-    Dynamics represented as D(q) * q_ddot + C(q, q_dot) * q_dot + G(q) = B * u.
+    Dynamics represented as D(q) * q_ddot + C(q, q_dot) * q_dot + G(q) = B(q) * u.
 
-    Override D, C, U, G.
+    Override D, C, B, U, G.
     """
 
-    def __init__(self, B):
+    def __init__(self, n, m):
         """Create a RoboticDynamics object.
 
         Inputs:
-        Full rank static actuation matrix, B: numpy array
+        Configuration space dimension, n: int
+        Action space dimension, m: int
         """
 
-        self.B = B
-        self.k, self.m = B.shape
-        relative_degrees = [2] * self.k
-        perm = concatenate([array([j, j + self.k]) for j in range(self.k)])
-        FBLinDynamics.__init__(self, relative_degrees, perm)
+        SystemDynamics.__init__(self, 2 * n, m)
+        self.k = n
 
     def D(self, q):
         """Compute positive-definite inertia matrix.
@@ -49,6 +48,18 @@ class RoboticDynamics(FBLinDynamics, PDDynamics):
 
         Outputs:
         Coriolis terms matrix: numpy array
+        """
+
+        pass
+
+    def B(self, q):
+        """Compute actuation terms.
+
+        Inputs:
+        Coordinates, q: numpy array
+
+        Outputs:
+        Actuation matrix: numpy array
         """
 
         pass
@@ -109,7 +120,7 @@ class RoboticDynamics(FBLinDynamics, PDDynamics):
 
     def act(self, x, t):
         q = self.proportional(x, t)
-        return concatenate([zeros((self.k, self.m)), solve(self.D(q), self.B)])
+        return concatenate([zeros((self.k, self.m)), solve(self.D(q), self.B(q))])
 
     def proportional(self, x, t):
         return self.eval(x, t)[:self.k]

@@ -22,6 +22,6 @@ class PDController(Controller):
         self.K_d = K_d
 
     def eval(self, x, t):
-        e_p = self.dynamics.proportional(x, t)
-        e_d = self.dynamics.derivative(x, t)
+        e_p = dynamics.proportional(x, t)
+        e_d = dynamics.derivative(x, t)
         return -dot(self.K_p, e_p) - dot(self.K_d, e_d)
