@@ -11,7 +11,7 @@ class RoboticDynamics(SystemDynamics, AffineDynamics, PDDynamics):
     State represented as x = (q, q_dot), where q are generalized coordinates and
     q_dot are corresponding rates.
 
-    Dynamics represented as D(q) * q_ddot + C(q, q_dot) * q_dot + G(q) = B(q) * u.
+    Dynamics represented as D(q) * q_ddot + C(q, q_dot) * q_dot + G(q) = B(q) * u + F_ext(q, q_dot).
 
     Override D, C, B, U, G.
     """
@@ -88,6 +88,19 @@ class RoboticDynamics(SystemDynamics, AffineDynamics, PDDynamics):
 
         pass
 
+    def F_ext(self, q, qdot):
+        """Compute non-conservative generalized forces.
+
+        Inputs:
+        Coordinates, q: numpy array
+        Coordinate rates, q_dot: numpy array
+
+        Outputs:
+        Generalized forces: numpy array
+        """
+
+        return zeros(self.k)
+
     def T(self, q, q_dot):
         """Compute kinetic energy.
 
@@ -112,7 +125,7 @@ class RoboticDynamics(SystemDynamics, AffineDynamics, PDDynamics):
         Coriolis and potential terms: numpy array
         """
 
-        return dot(self.C(q, q_dot), q_dot) + self.G(q)
+        return dot(self.C(q, q_dot), q_dot) + self.G(q) -  self.F_ext(q, q_dot)
 
     def drift(self, x, t):
         q, q_dot = reshape(x, (2, -1))
