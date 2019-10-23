@@ -22,6 +22,29 @@ class SystemDynamics(Dynamics):
 
     def eval(self, x, t):
         return x
+    
+    def step(self, x_0, u_0, t_0, t_f, atol=1e-6, rtol=1e-6):
+        """Simulate system from initial state with constant action over a
+        time interval.
+        
+        Approximated using Runge-Kutta 4,5 solver.
+        
+        Inputs:
+        Initial state, x_0: numpy array
+        Control action, u_0: numpy array
+        Initial time, t_0: float
+        Final time, t_f: float
+        Absolute tolerance, atol: float
+        Relative tolerance, rtol: float
+        
+        Outputs:
+        State at final time: numpy array
+        """
+        
+        x_dot = lambda t, x: self.eval_dot(x, u_0, t)
+        t_span = [t_0, t_f]
+        res = solve_ivp(x_dot, t_span, x_0, atol=atol, rtol=rtol)
+        return res.y[:, -1]
 
     def simulate(self, x_0, controller, ts, processed=True, atol=1e-6, rtol=1e-6):
         """Simulate system from initial state with specified controller.
@@ -58,13 +81,9 @@ class SystemDynamics(Dynamics):
             u = controller.eval(x, t)
             us[j] = u
             u = controller.process(u)
-            x_dot = lambda t, x: self.eval_dot(x, u, t)
-            t_span = [t, ts[j + 1]]
-            res = solve_ivp(x_dot, t_span, x, atol=atol, rtol=rtol)
-            xs[j + 1] = res.y[:, -1]
+            xs[j + 1] = self.step(x, u, t, ts[j + 1])
 
         if processed:
             us = array([controller.process(u) for u in us])
 
         return xs, us
-
