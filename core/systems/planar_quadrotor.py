@@ -20,8 +20,8 @@ class PlanarQuadrotor(RoboticDynamics):
         return m * g * z
     
     def G(self, q):
-        m, _, _ = self.params
-        return array([0, -m * g, 0])
+        m, _, g = self.params
+        return array([0, m * g, 0])
     
     def B(self, q):
         _, _, theta = q
