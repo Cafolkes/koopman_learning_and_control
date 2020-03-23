@@ -25,4 +25,4 @@ class PlanarQuadrotor(RoboticDynamics):
     
     def B(self, q):
         _, _, theta = q
-        return array([[-sin(theta), 0], [cos(theta), 0], [0, 1]])
+        return array([[sin(theta), 0], [cos(theta), 0], [0, 1]])

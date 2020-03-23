@@ -1,6 +1,9 @@
 from numpy import arange, array, dot, reshape, zeros
 from numpy.linalg import solve
 
+def arr_map(func, *arr):
+    return array(list(map(func, *arr)))
+
 def differentiate(xs, ts, L=3):
     half_L = (L - 1) // 2
     b = zeros(L)

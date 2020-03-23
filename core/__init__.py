@@ -1,3 +1,3 @@
 name = 'core'
 
-from .util import differentiate
+from .util import arr_map, differentiate
