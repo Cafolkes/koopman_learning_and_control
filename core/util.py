@@ -1,3 +1,4 @@
+from matplotlib.pyplot import figure
 from numpy import arange, array, dot, reshape, zeros
 from numpy.linalg import solve
 
@@ -18,3 +19,12 @@ def differentiate(xs, ts, L=3):
         return dot(w, xs)
 
     return array([diff(xs[k - half_L:k + half_L + 1], ts[k - half_L:k + half_L + 1]) for k in range(half_L, len(ts) - half_L)])
+
+def default_fig(fig, ax):
+    if fig is None:
+        fig = figure(figsize=(6, 6), tight_layout=True)
+
+    if ax is None:
+        ax = fig.add_subplot(1, 1, 1)
+
+    return fig, ax

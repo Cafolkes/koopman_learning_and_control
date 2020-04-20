@@ -1,3 +1,4 @@
+from matplotlib.pyplot import figure
 from numpy import array, concatenate, dot, reshape, zeros
 from numpy.linalg import solve
 
@@ -140,3 +141,23 @@ class RoboticDynamics(SystemDynamics, AffineDynamics, PDDynamics):
 
     def derivative(self, x, t):
         return self.eval(x, t)[self.k:]
+
+    def plot_coordinates(self, ts, qs, fig=None, ax=None, labels=None):
+        if labels is None:
+            labels = [f'$q_{i}$' for i in range(self.k)]
+
+        return self.plot_timeseries(ts, qs, fig, ax, 'Coordinates', labels)
+
+    def plot(self, xs, us, ts, fig=None, coordinate_labels=None, action_labels=None):
+        if fig is None:
+            fig = figure(figsize=(12, 6), tight_layout=True)
+
+        qs = xs[:, :self.k]
+
+        coordinate_ax = fig.add_subplot(1, 2, 1)
+        fig, coordinate_ax = self.plot_coordinates(ts, qs, fig, coordinate_ax, coordinate_labels)
+
+        action_ax = fig.add_subplot(1, 2, 2)
+        fig, action_ax = self.plot_actions(ts, us, fig, action_ax, action_labels)
+
+        return fig, (coordinate_ax, action_ax)
