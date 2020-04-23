@@ -1,13 +1,28 @@
-from numpy import argmin, array, Inf, mean, sqrt
+from numpy import argmin, array, Inf, mean, sqrt, zeros
 from numpy.linalg import norm
+from numpy.ma import masked_array
 from numpy.random import permutation
 from sys import stdout
+
+from ..util import arr_map
 
 class ConvexBody:
     def __init__(self, dim):
         self.dim = dim
 
     def sample(self, N):
+        raise NotImplementedError
+
+    def is_member(self, xs):
+        raise NotImplementedError
+
+    def uniform_grid(self, N):
+        raise NotImplementedError
+
+    def uniform_list(self, N):
+        raise NotImplementedError
+
+    def safety(self, affine_dynamics):
         raise NotImplementedError
 
     def voronoi_iteration(self, N, k, tol, verbose=False):
@@ -38,3 +53,15 @@ class ConvexBody:
             dist = total_distance(centers, clusters)
 
         return clusters, centers
+
+    def grid_map(self, func, grids):
+        xs = array([grid.compressed() for grid in grids]).T
+        vals = arr_map(func, xs)
+
+        mask = grids[0].mask
+        idxs = ~mask
+        shape = grids[0].shape
+        val_grid = masked_array(zeros(shape), mask)
+        val_grid[idxs] = vals
+
+        return val_grid
