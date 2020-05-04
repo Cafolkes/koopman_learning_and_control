@@ -1,5 +1,7 @@
-# core
-Python simulation and hardware library for learning and control
+# koopman-learning-control
+Python simulation and hardware library for Koopman based learning and control
+
+The simulation framework of this repository is utilizing the [Learning and Control Core Library](https://github.com/learning-and-control/core).
 
 ## macOS setup
 Set up virtual environment
