@@ -2,3 +2,5 @@
 __pycache__
 .ipynb_checkpoints
 *.slides.html
+.DS_Store
+.idea/
