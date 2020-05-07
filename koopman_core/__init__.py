@@ -1,0 +1,2 @@
+name = 'koopman_core'
+

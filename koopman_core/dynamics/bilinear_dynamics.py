@@ -2,9 +2,8 @@ from matplotlib.pyplot import figure
 from numpy import array, concatenate, dot, reshape, zeros, atleast_1d
 from numpy.linalg import solve
 
-from .affine_dynamics import AffineDynamics
-from .pd_dynamics import PDDynamics
-from .system_dynamics import SystemDynamics
+from core.dynamics.affine_dynamics import AffineDynamics
+from core.dynamics.system_dynamics import SystemDynamics
 
 class BilinearDynamics(SystemDynamics, AffineDynamics):
     """Class for unconstrained bilinear dynamics

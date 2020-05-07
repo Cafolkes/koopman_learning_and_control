@@ -1,7 +1,7 @@
 from numpy import dot, atleast_2d
 from numpy.linalg import solve, pinv
 
-from .controller import Controller
+from core.controllers.controller import Controller
 
 class BilinearFBLinController(Controller):
     """Class for bilinear linearizing feedback policies."""

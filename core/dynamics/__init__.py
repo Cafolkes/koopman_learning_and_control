@@ -1,5 +1,4 @@
 from .affine_dynamics import AffineDynamics
-from .bilinear_dynamics import BilinearDynamics
 from .affine_quad_clf import AffineQuadCLF
 from .configuration_dynamics import ConfigurationDynamics
 from .configuration_trajectory_dynamics import ConfigurationTrajectoryDynamics
