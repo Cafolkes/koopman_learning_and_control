@@ -1,1 +1,5 @@
 from .bilinear_fb_lin_controller import BilinearFBLinController
+from .mpc_controller import MPCController
+from .mpc_controller_dense import MPCControllerDense
+from .mpc_controller_lift_fp import MPCControllerFast
+from .openloop_controller import OpenLoopController
