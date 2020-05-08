@@ -7,8 +7,8 @@ import scipy.sparse as sparse
 import osqp
 import matplotlib.pyplot as plt
 
-from .controller import Controller
-from ..learning.edmd import Edmd
+from core.controllers.controller import Controller
+from koopman_core.learning.edmd import Edmd
 
 
 def block_diag(M,n):
