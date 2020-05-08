@@ -5,8 +5,8 @@ import numpy as np
 from itertools import combinations_with_replacement, permutations
 from .utils import differentiate_vec
 from .basis_functions import BasisFunctions
-from ..dynamics.linear_system_dynamics import LinearSystemDynamics
-from ..controllers.constant_controller import ConstantController
+from core.dynamics.linear_system_dynamics import LinearSystemDynamics
+from core.controllers.constant_controller import ConstantController
 from .diffeomorphism_net import DiffeomorphismNet
 from torch import nn, cuda, optim, from_numpy, manual_seed, no_grad, save, load, cat, transpose as t_transpose
 from torch.utils.data.dataset import Dataset, TensorDataset
