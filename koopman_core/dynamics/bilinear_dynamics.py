@@ -35,4 +35,4 @@ class BilinearDynamics(SystemDynamics, AffineDynamics):
         return dot(self.F, x)
 
     def act(self, x, t):
-        return array([dot(g, x) for g in self.G])
+        return array([dot(g, x) for g in self.G]).T
