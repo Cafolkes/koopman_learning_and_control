@@ -1,5 +1,5 @@
-from numpy import dot, atleast_2d
-from numpy.linalg import solve, pinv
+from numpy import dot, concatenate, zeros
+from numpy.linalg import solve
 
 from core.controllers.controller import Controller
 
@@ -23,13 +23,21 @@ class BilinearFBLinController(Controller):
         self.dynamics = bilinear_dynamics
         self.output = output
         self.lin_controller_gain = lin_controller_gain
+        self.u_prev = zeros(self.dynamics.m)
 
     def eval(self, x, t):
         z = self.dynamics.phi_fun(x)
-        eta = dot(self.output.C_h, z - self.output.z_d(t))
+        z_dot = self.dynamics.eval_dot(z, self.u_prev, t)
 
-        act = self.dynamics.act(z, t).T
-        nu = dot(self.lin_controller_gain, z-self.output.z_d(t))
+        eta_z = concatenate((z-self.output.z_d(t), z_dot - self.output.z_d_dot(t)))
+        nu = dot(self.lin_controller_gain, eta_z)
 
-        return dot(pinv(act), self.output.z_d_dot(t) - self.dynamics.drift(self.output.z_d(t),t) + nu)
+        act = self.dynamics.act(z, t)
+        F = self.dynamics.F
+
+        u = solve(self.output.C_h@F@act, self.output.C_h@(self.output.z_d_ddot(t) - F@F@self.output.z_d(t) + nu))
+        self.u_prev = u
+        return u
+
+        #return dot(pinv(act), self.output.z_d_dot(t) - self.dynamics.drift(self.output.z_d(t),t) + nu)
 
