@@ -36,7 +36,7 @@ class Edmd():
     def process(self, x, u, t):
         assert x.shape[2] == self.n
 
-        z = self.lift(x)
+        z = self.lift(x, u)
         z_u = np.concatenate((z, u), axis=2)
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii,:-1]) for ii in range(self.n_traj)])
 
@@ -63,5 +63,5 @@ class Edmd():
         """
         return np.dot(self.C, np.dot(self.A, x) + np.dot(self.B, u))
 
-    def lift(self, x):
+    def lift(self, x, u):
         return np.array([self.basis(x[ii, :-1, :]) for ii in range(self.n_traj)])
