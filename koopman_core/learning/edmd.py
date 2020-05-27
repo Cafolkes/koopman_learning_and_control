@@ -63,5 +63,8 @@ class Edmd():
         """
         return np.dot(self.C, np.dot(self.A, x) + np.dot(self.B, u))
 
+    def score(self, x, u):
+        pass
+
     def lift(self, x, u):
         return np.array([self.basis(x[ii, :-1, :]) for ii in range(self.n_traj)])
