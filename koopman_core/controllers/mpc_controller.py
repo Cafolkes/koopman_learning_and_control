@@ -2,9 +2,7 @@ import numpy as np
 import scipy.sparse as sparse
 import osqp
 import matplotlib.pyplot as plt
-
 from core.controllers.controller import Controller
-from koopman_core.learning.edmd import Edmd
 
 
 class MPCController(Controller):
@@ -15,7 +13,7 @@ class MPCController(Controller):
 
     Use lifting=True to solve MPC in the lifted space
     """
-    def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, plotMPC=False, plotMPC_filename="",lifting=False, edmd_object=Edmd()):
+    def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, plotMPC=False, plotMPC_filename="",lifting=False, edmd_object=None):
         """__init__ Create an MPC controller
         
         Arguments:

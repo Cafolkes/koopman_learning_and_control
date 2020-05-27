@@ -31,7 +31,7 @@ class MPCControllerFast(Controller):
     """
     def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, 
                  Q, R, QN, xr, plotMPC=False, plotMPC_filename="",
-                 lifting=False, edmd_object=Edmd(),name="noname", soft=False, D=None):
+                 lifting=False, edmd_object=None,name="noname", soft=False, D=None):
         """Create an MPC Controller object.
 
         Sizes:
