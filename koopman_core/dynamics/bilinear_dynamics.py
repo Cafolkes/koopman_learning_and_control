@@ -12,7 +12,7 @@ class BilinearDynamics(SystemDynamics, AffineDynamics):
     Override drift, act.
     """
 
-    def __init__(self, n, m, F, G, phi_fun):
+    def __init__(self, n, m, F, G, Cx, phi_fun):
         """Create a RoboticDynamics object.
 
         Inputs:
@@ -29,6 +29,7 @@ class BilinearDynamics(SystemDynamics, AffineDynamics):
         self.k = n
         self.F = F
         self.G = G
+        self.Cx = Cx
         self.phi_fun = phi_fun
 
     def drift(self, x, t):
