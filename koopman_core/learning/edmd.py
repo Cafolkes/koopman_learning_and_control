@@ -6,7 +6,7 @@ class Edmd():
     Base class for edmd-type methods. Implements baseline edmd with the possible addition of l1 and/or l2 regularization.
     Overload fit for more specific methods.
     '''
-    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, standardizer=None, C=None):
+    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, cv=None, standardizer=None, C=None):
         self.n = n
         self.n_lift = n_lift
         self.n_traj = n_traj
@@ -17,19 +17,37 @@ class Edmd():
 
         self.basis = basis
         self.optimizer = optimizer
+        self.cv = cv
         self.standardizer = standardizer
 
-    def fit(self, X, y):
+    def fit(self, X, y, cv=False, override_kinematics=False):
+        if override_kinematics:
+            y = y[:,int(self.n/2):]
 
-        self.optimizer.fit(X, y)
+        if cv:
+            assert self.cv is not None, 'No cross validation method specified.'
+            self.cv.fit(X,y)
+            mdl_coefs = self.cv.coef_
+        else:
+            self.optimizer.fit(X, y)
+            mdl_coefs = self.optimizer.coef_
 
         if self.standardizer is None:
-            coefs = self.optimizer.coef_
+            coefs = mdl_coefs
         else:
-            coefs = self.standardizer.transform(self.optimizer.coef_)
+            coefs = self.standardizer.transform(mdl_coefs)
 
-        self.A = coefs[:, :self.n_lift]
-        self.B = coefs[:, self.n_lift:]
+        if override_kinematics:
+            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2))),
+                                       np.eye(int(self.n/2)),
+                                       np.zeros((int(self.n/2),self.n_lift-self.n))),axis=1)
+            self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]),axis=0)
+            self.B = np.concatenate((np.zeros((int(self.n/2), self.m)),
+                                     coefs[:,self.n_lift:]), axis=0)
+
+        else:
+            self.A = coefs[:, :self.n_lift]
+            self.B = coefs[:, self.n_lift:]
 
         #TODO: Add possibility of learning C-matrix.
 

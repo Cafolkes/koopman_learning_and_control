@@ -66,7 +66,7 @@ def plot_trajectory_ep(X, X_d, U, U_nom, t, display=True, save=False, filename='
     if display:
         show()
 
-def differentiate_vec(xs, ts, L=3):
+def differentiate_vec(xs, ts):
     """differentiate_vec Numerically differencitate a vector
     
     Arguments:
@@ -97,11 +97,7 @@ def differentiate(xs, ts):
         numpy array [Nt,] -- numerical derivative
     """
 
-    #dx = zeros_like(xs)                     # dx/dt
     dt = ts[1] - ts[0]
-    #dx[1:-1] = (xs[2:] - xs[:-2])/(2*dt)    # Internal mesh points
-    #dx[0]  = (xs[1]  - xs[0])/dt           # End point
-    #dx[-1] = (xs[-1] - xs[-2])/dt           # End point
     dx = gradient(xs, dt, edge_order=2)
     return dx
 

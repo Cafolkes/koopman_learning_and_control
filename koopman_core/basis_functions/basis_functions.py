@@ -17,10 +17,9 @@ class BasisFunctions():
         """
         self.n = n
         self.Nlift = Nlift
-        self.Lambda = None
         self.basis = None
 
-    def lift(self, q, t):
+    def lift(self, q):
         """
         Call this function to get the variables in lifted space
 
@@ -34,7 +33,7 @@ class BasisFunctions():
         basis applied to q
         """
 
-        return self.basis(q, t)
+        return self.basis(q)
 
-    def construct_basis(self, ub=None, lb=None):
+    def construct_basis(self, poly_deg=2):
         pass

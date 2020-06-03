@@ -1,1 +1,2 @@
-from .bilinear_dynamics import BilinearDynamics
+from .bilinear_lifted_dynamics import BilinearLiftedDynamics
+from .linear_lifted_dynamics import LinearLiftedDynamics

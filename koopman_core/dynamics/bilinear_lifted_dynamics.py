@@ -1,9 +1,7 @@
 from numpy import array, concatenate, dot, reshape, zeros, atleast_1d
+from core.dynamics import AffineDynamics, SystemDynamics
 
-from core.dynamics.affine_dynamics import AffineDynamics
-from core.dynamics.system_dynamics import SystemDynamics
-
-class BilinearDynamics(SystemDynamics, AffineDynamics):
+class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     """Class for unconstrained bilinear dynamics
 
     State represented as x = (q, q_dot), where q are generalized coordinates and

@@ -9,7 +9,7 @@ class MPCController(Controller):
     """
     Class for controllers MPC.
 
-    MPC are solved using osqp.
+    MPCs are solved using osqp.
 
     Use lifting=True to solve MPC in the lifted space
     """
@@ -103,9 +103,6 @@ class MPCController(Controller):
             # - input and state constraints
             Aineq = sparse.eye((N+1)*nx + N*nu)
 
-
-
-
         # - linear dynamics
         Ax = sparse.kron(sparse.eye(N+1),-sparse.eye(nx)) + sparse.kron(sparse.eye(N+1, k=-1), self._osqp_Ad)
         Bu = sparse.kron(sparse.vstack([sparse.csc_matrix((1, N)), sparse.eye(N)]), self._osqp_Bd)
@@ -138,9 +135,6 @@ class MPCController(Controller):
             for ii in range(self.ns,self.ns+self.nu):
                 self.axs[ii].set(xlabel='Time(s)',ylabel='u')
                 self.axs[ii].grid()
-
-
-
 
     def eval(self, x, t):
         """eval Function to evaluate controller

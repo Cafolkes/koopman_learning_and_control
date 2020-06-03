@@ -1,5 +1,5 @@
 from core.controllers.controller import Controller
-from numpy import array, interp
+from numpy import array, interp, atleast_1d
 class OpenLoopController(Controller):
     """Class for open loop action policies."""
 
@@ -27,4 +27,4 @@ class OpenLoopController(Controller):
         Returns:
             control action -- numpy array [Nu,]
         """
-        return array([interp(t, self.t_open_loop.flatten(), self.u_open_loop[:,ii].flatten()) for ii in range(self.m)]).squeeze()
+        return atleast_1d(array([interp(t, self.t_open_loop.flatten(), self.u_open_loop[:,ii].flatten()) for ii in range(self.m)]).squeeze())
