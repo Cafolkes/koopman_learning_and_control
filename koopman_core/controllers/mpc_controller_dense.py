@@ -89,6 +89,7 @@ class MPCControllerDense(Controller):
         self.nx = nx
         self.ns = ns
         self.soft = soft
+        self.comp_time = []
 
         # Total desired path
         if self.q_d.ndim==2:
@@ -169,7 +170,7 @@ class MPCControllerDense(Controller):
         self.a = a
         self.B = B
 
-        check_ab = True
+        check_ab = False
         if check_ab:
             x0  = np.linspace(-5,40,nx)
             x00 = np.linspace(-5,40,nx)
@@ -328,14 +329,11 @@ class MPCControllerDense(Controller):
         if (tindex+N) < self.Nqd: # if we haven't reach the end of q_d yet
             xr = self.q_d[:,tindex:tindex+N]
         else: # we fill xr with copies of the last q_d
-            xr = np.hstack( [self.q_d[:,tindex:],np.transpose(np.tile(self.q_d[:,-1],(N-self.Nqd+tindex,1)))])
+            xr = np.hstack([self.q_d[:,tindex:],np.transpose(np.tile(self.q_d[:,-1],(N-self.Nqd+tindex,1)))])
 
         # Construct the new _osqp_q objects
         if (self.lifting):
-            x = np.transpose(self.edmd_object.lift(x.reshape((x.shape[0],1)),xr[:,0].reshape((xr.shape[0],1))))[:,0]
-            #print("Eval at t={:.2f}, z={}".format(t,x))
-
-            #x = self.edmd_object.lift(x,xr[:,0])
+            x = self.edmd_object.lift(x.reshape((1,x.shape[0])), np.zeros((1,self.nu))).squeeze()
             BQxr  = self.B.T @ np.reshape(self.CtQ.dot(xr),(N*nx,),order='F')
             l = np.hstack([self.x_min_flat - self.Cbd @ self.a @ x, self.u_min_flat])
             u = np.hstack([self.x_max_flat - self.Cbd @ self.a @ x, self.u_max_flat])
@@ -358,7 +356,7 @@ class MPCControllerDense(Controller):
         time_eval0 = time.time() 
         ## Solve MPC Instance
         self._osqp_result = self.prob.solve()
-
+        self.comp_time.append(time.time()-time_eval0)
         #print('Time Solve {:.2f}ms'.format(1000*(time.time()-time_eval0)))
         time_eval0 = time.time() 
 

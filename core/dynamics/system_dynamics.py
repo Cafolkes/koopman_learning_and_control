@@ -68,8 +68,6 @@ class SystemDynamics(Dynamics):
         Action history: numpy array
         """
 
-        assert len(x_0) == self.n
-
         N = len(ts)
         xs = zeros((N, self.n))
         us = [None] * (N - 1)

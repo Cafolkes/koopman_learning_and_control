@@ -1,4 +1,5 @@
 import cvxpy as cvx
+import time
 
 from core.controllers.controller import Controller
 
@@ -23,6 +24,7 @@ class LinearMpcController(Controller):
 
         self.mpc_prob = None
         self.x_init = None
+        self.comp_time = []
 
     def construct_controller(self):
         u = cvx.Variable((self.m, self.n_pred))
@@ -44,7 +46,9 @@ class LinearMpcController(Controller):
         # TODO: Add support for update of reference trajectory
 
         self.x_init.value = x
+        time_eval0 = time.time()
         self.mpc_prob.solve(solver=cvx.OSQP, warm_start=True)
+        self.comp_time.append(time.time()-time_eval0)
         assert self.mpc_prob.status == 'optimal', 'MPC not solved to optimality'
         return self.mpc_prob.variables()[1].value[:,0]
 

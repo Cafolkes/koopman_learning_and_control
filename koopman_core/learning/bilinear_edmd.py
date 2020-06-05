@@ -44,7 +44,8 @@ class BilinearEdmd(Edmd):
         assert x.shape[2] == self.n
 
         self.construct_bilinear_basis_()
-        z = super(BilinearEdmd, self).lift(x, u)
+        #z = super(BilinearEdmd, self).lift(x, u)
+        z = np.array([super(BilinearEdmd, self).lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii, :-1]) for ii in range(self.n_traj)])
         z_bilinear = self.lift(x, u) #TODO: Wrong shape, look into lifting func
 

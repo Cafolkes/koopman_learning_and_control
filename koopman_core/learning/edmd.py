@@ -52,9 +52,12 @@ class Edmd():
         #TODO: Add possibility of learning C-matrix.
 
     def process(self, x, u, t):
+        assert x.shape[0] == self.n_traj
         assert x.shape[2] == self.n
 
-        z = self.lift(x, u)
+
+        #z = self.lift(x, u)
+        z = np.array([self.lift(x[ii, :-1, :], u[ii,:,:]) for ii in range(self.n_traj)])
         z_u = np.concatenate((z, u), axis=2)
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii,:-1]) for ii in range(self.n_traj)])
 
@@ -85,4 +88,4 @@ class Edmd():
         pass
 
     def lift(self, x, u):
-        return np.array([self.basis(x[ii, :-1, :]) for ii in range(self.n_traj)])
+        return self.basis(x)
