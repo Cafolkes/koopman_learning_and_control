@@ -1,1 +1,1 @@
-from .cart_pole_basis import CartPoleBasis
+from .poly_sine_basis import PolySineBasis

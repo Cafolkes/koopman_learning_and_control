@@ -55,8 +55,6 @@ class Edmd():
         assert x.shape[0] == self.n_traj
         assert x.shape[2] == self.n
 
-
-        #z = self.lift(x, u)
         z = np.array([self.lift(x[ii, :-1, :], u[ii,:,:]) for ii in range(self.n_traj)])
         z_u = np.concatenate((z, u), axis=2)
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii,:-1]) for ii in range(self.n_traj)])
