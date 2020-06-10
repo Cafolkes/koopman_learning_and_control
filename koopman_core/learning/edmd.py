@@ -20,9 +20,9 @@ class Edmd():
         self.cv = cv
         self.standardizer = standardizer
 
-    def fit(self, X, y, cv=False, override_kinematics=False):
+    def fit(self, X, y, cv=False, override_kinematics=False, first_obs_const=True):
         if override_kinematics:
-            y = y[:,int(self.n/2):]
+            y = y[:, int(self.n / 2)+int(first_obs_const):]
 
         if cv:
             assert self.cv is not None, 'No cross validation method specified.'
@@ -38,11 +38,15 @@ class Edmd():
             coefs = self.standardizer.transform(mdl_coefs)
 
         if override_kinematics:
-            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2))),
-                                       np.eye(int(self.n/2)),
-                                       np.zeros((int(self.n/2),self.n_lift-self.n))),axis=1)
-            self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]),axis=0)
-            self.B = np.concatenate((np.zeros((int(self.n/2), self.m)),
+            kin_dyn = np.concatenate((np.zeros((int(self.n / 2), int(self.n / 2) + int(first_obs_const))),
+                                      np.eye(int(self.n / 2)),
+                                      np.zeros((int(self.n / 2), self.n_lift - self.n - int(first_obs_const)))), axis=1)
+            if first_obs_const:
+                self.A = np.concatenate((np.zeros((1, self.n_lift)), kin_dyn, coefs[:, :self.n_lift]), axis=0)
+            else:
+                self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]), axis=0)
+
+            self.B = np.concatenate((np.zeros((int(self.n/2)+int(first_obs_const), self.m)),
                                      coefs[:,self.n_lift:]), axis=0)
 
         else:

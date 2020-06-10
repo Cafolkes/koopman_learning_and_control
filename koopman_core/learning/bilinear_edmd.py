@@ -7,9 +7,14 @@ class BilinearEdmd(Edmd):
         super(BilinearEdmd, self).__init__(n, m, basis, n_lift, n_traj, optimizer, cv=cv, standardizer=standardizer, C=C)
         self.B = []
 
-    def fit(self, X, y, cv=False, override_kinematics=False):
+        self.basis_reduced = None
+        self.n_lift_reduced = None
+        self.obs_in_use = None
+
+    def fit(self, X, y, cv=False, override_kinematics=False, first_obs_const=True):
+
         if override_kinematics:
-            y = y[:, int(self.n / 2):]
+            y = y[:, int(self.n / 2)+int(first_obs_const):]
 
         if cv:
             assert self.cv is not None, 'No cross validation method specified.'
@@ -25,12 +30,15 @@ class BilinearEdmd(Edmd):
             coefs = self.standardizer.transform(mdl_coefs)
 
         if override_kinematics:
-            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2))),
+            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2)+int(first_obs_const))),
                                        np.eye(int(self.n/2)),
-                                       np.zeros((int(self.n/2),self.n_lift-self.n))),axis=1)
-            self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]),axis=0)
+                                       np.zeros((int(self.n/2),self.n_lift-self.n-int(first_obs_const)))),axis=1)
+            if first_obs_const:
+                self.A = np.concatenate((np.zeros((1,self.n_lift)), kin_dyn, coefs[:, :self.n_lift]),axis=0)
+            else:
+                self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]), axis=0)
             for ii in range(self.m):
-                self.B.append(np.concatenate((np.zeros((int(self.n/2), self.n_lift)),
+                self.B.append(np.concatenate((np.zeros((int(self.n/2)+int(first_obs_const), self.n_lift)),
                                                        coefs[:, self.n_lift * (ii + 1):self.n_lift * (ii + 2)]), axis=0))
 
         else:
@@ -67,3 +75,26 @@ class BilinearEdmd(Edmd):
         for ii in range(self.m):
             z_bilinear = np.concatenate((z_bilinear, np.multiply(z,np.tile(u[:,:,ii:ii+1], (1,1,z.shape[2])))),axis=2)
         return z_bilinear
+
+    def reduce_mdl(self):
+        # Identify what basis functions are in use:
+        in_use = np.unique(np.nonzero(self.C)[1]) # Identify observables used for state prediction
+        n_obs_used = 0
+        while n_obs_used < in_use.size:
+            n_obs_used = in_use.size
+            in_use = np.unique(np.nonzero(self.A[in_use,:])[1])
+            for ii in range(self.m):
+                in_use = np.unique(np.concatenate((in_use, np.nonzero(self.B[ii][in_use,:])[1])))
+
+        self.A = self.A[in_use,:]
+        self.A = self.A[:, in_use]
+        for ii in range(self.m):
+            self.B[ii] = self.B[ii][in_use, :]
+            self.B[ii] = self.B[ii][:, in_use]
+        self.C = self.C[:, in_use]
+        self.basis_reduced = lambda x: self.basis(x)[:,in_use]
+        self.n_lift_reduced = in_use.size
+        self.obs_in_use = in_use
+
+
+

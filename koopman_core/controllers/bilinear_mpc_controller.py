@@ -5,7 +5,7 @@ from core.controllers.controller import Controller
 
 class BilinearMpcController(Controller):
 
-    def __init__(self, n, m, k, n_lift, n_pred, fl_dynamics, bilinear_dynamics, C_x, C_h, xmin, xmax, umin, umax, Q, Q_n, R, set_pt):
+    def __init__(self, n, m, k, n_lift, n_pred, fl_dynamics, bilinear_dynamics, C_x, C_h, xmin, xmax, umin, umax, Q, Q_n, R, set_pt, const_offset=0):
 
         super(BilinearMpcController, self).__init__(fl_dynamics)
         self.n = n
@@ -25,6 +25,7 @@ class BilinearMpcController(Controller):
         self.Q_n = Q_n
         self.R = R
         self.set_pt = set_pt
+        self.const_offset = const_offset
 
         self.mpc_prob = None
         self.eta_init = None
@@ -88,7 +89,7 @@ class BilinearMpcController(Controller):
         act = self.bilinear_dynamics.act(z, t)
         C = self.C_h
 
-        u = np.linalg.solve(C@F@act, C@(zd_ddot - F@F@zd + nu))
+        u = np.linalg.solve(C@F@act, C@(zd_ddot - F@F@zd + nu)) + self.const_offset
         self.u_prev = u
 
         return u

@@ -70,6 +70,7 @@ B_nom = np.array([[0., 0.],
                   [1./mass, 1./mass],
                   [-prop_arm/inertia, prop_arm/inertia]])                               # Linearization of the true system around the origin
 
+hover_thrust = mass*gravity/m
 q, r = 1e2, 1
 Q = q * np.identity(n)
 R = r*np.identity(m)
@@ -97,11 +98,11 @@ umin = np.array([-mass*gravity/2., -mass*gravity/2])
 sub_sample_rate = 1
 
 #EDMD parameters:
-alpha_edmd = 3e-3
+alpha_edmd = 7e-2
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd = 1.5e-3
+alpha_bedmd = 7e-2
 tune_mdl_bedmd = False
 
 # Prediction performance evaluation parameters:
@@ -113,6 +114,8 @@ xs = np.empty((n_traj,n_pred+1,n))
 us = np.empty((n_traj, n_pred, m))
 
 #Closed loop performance evaluation parameters:
+
+
 n_cols = 5
 plt.figure(figsize=(12,12*n_traj/(n_cols**2)))
 for ii in range(n_traj):
@@ -126,7 +129,7 @@ for ii in range(n_traj):
 
     output = QuadrotorTrajectoryOutput(quadrotor, x_d[ii,:,:], t_eval, n, m)
     pd_controller = PDController(output, K_p, K_d)
-    perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=mass*gravity/2)
+    perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=hover_thrust)
     xs[ii,:,:], us[ii,:,:] = quadrotor.simulate(x_0, perturbed_pd_controller, t_eval)
 
     plt.subplot(int(np.ceil(n_traj/n_cols)),n_cols,ii+1)
@@ -153,7 +156,7 @@ cv_edmd = linear_model.MultiTaskLassoCV(fit_intercept=False, n_jobs=-1, cv=3, se
 standardizer_edmd = preprocessing.StandardScaler(with_mean=False)
 
 model_edmd = Edmd(n, m, basis.basis, n_lift_edmd, n_traj, optimizer_edmd, cv=cv_edmd, standardizer=standardizer_edmd, C=C_edmd)
-X_edmd, y_edmd = model_edmd.process(xs, us, np.tile(t_eval,(n_traj,1)))
+X_edmd, y_edmd = model_edmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj,1)))
 X_edmd, y_edmd = X_edmd[::sub_sample_rate,:], y_edmd[::sub_sample_rate,:]
 model_edmd.fit(X_edmd, y_edmd, cv=tune_mdl_edmd, override_kinematics=True)
 sys_edmd = LinearLiftedDynamics(model_edmd.A, model_edmd.B, model_edmd.C)
@@ -171,10 +174,11 @@ cv_bedmd = linear_model.MultiTaskLassoCV(fit_intercept=False, n_jobs=-1, cv=3, s
 standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
 
 model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj, optimizer_bedmd, cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_bedmd)
-X_bedmd, y_bedmd = model_bedmd.process(xs, us, np.tile(t_eval,(n_traj,1)))
+X_bedmd, y_bedmd = model_bedmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj,1)))
 X_bedmd, y_bedmd = X_bedmd[::sub_sample_rate,:], y_bedmd[::sub_sample_rate,:]
 model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True)
-sys_bedmd = BilinearLiftedDynamics(n_lift_bedmd, m, model_bedmd.A, model_bedmd.B, C_bedmd, basis_bedmd)
+model_bedmd.reduce_mdl()
+sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift_reduced, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis_reduced)
 if tune_mdl_bedmd:
     print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
 
@@ -200,19 +204,21 @@ for ii in range(n_traj_test):
     perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=mass * gravity / 2)
 
     xs_test[ii,:,:], us_test[ii,:,:] = quadrotor.simulate(x_0, perturbed_pd_controller, t_eval_test)
-    ol_controller_nom = OpenLoopController(sys_bedmd, us_test[ii,:,:]-mass*gravity/2, t_eval_test[:-1])
+    ol_controller_nom = OpenLoopController(sys_bedmd, us_test[ii,:,:]-hover_thrust, t_eval_test[:-1])
     ol_controller = OpenLoopController(sys_bedmd, us_test[ii, :, :], t_eval_test[:-1])
 
     xs_nom_test[ii,:,:], _ = nominal_sys.simulate(x_0, ol_controller_nom, t_eval_test[:-1])
 
     z_0_edmd = basis.basis(np.atleast_2d(x_0)).squeeze()
     #z_0_edmd = basis(np.atleast_2d(x_0)).squeeze()
-    zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller, t_eval_test[:-1])
+    #zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller, t_eval_test[:-1])
+    zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller_nom, t_eval_test[:-1])
     xs_edmd_test[ii,:,:] = np.dot(C_edmd, zs_edmd_tmp.T).T
 
-    z_0_bedmd = basis_bedmd(np.atleast_2d(x_0)).squeeze()
-    zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller, t_eval_test[:-1])
-    xs_bedmd_test[ii,:,:] = np.dot(C_bedmd, zs_bedmd_tmp.T).T
+    z_0_bedmd = model_bedmd.basis_reduced(np.atleast_2d(x_0)).squeeze()
+    #zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller, t_eval_test[:-1])
+    zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval_test[:-1])
+    xs_bedmd_test[ii,:,:] = np.dot(model_bedmd.C, zs_bedmd_tmp.T).T
 
 error_nom = xs_test[:,:-1,:] - xs_nom_test
 error_nom_mean = np.mean(error_nom, axis=0).T
@@ -251,11 +257,11 @@ print('MSE nominal: ', mse_nom, '\nMSE EDMD: ', mse_edmd, '\nMSE bilinear EDMD: 
 
 #Compare closed loop performance:
 # MPC parameters:
-x_0 = np.array([.25, .25, 0., 0., 0., 0.])
+x_0 = np.array([0., .25, 0., 0., 0., 0.])
 t_eval = dt * np.arange(200)
 umax = np.array([np.inf, np.inf])
 umin = np.array([-mass*gravity/2., -mass*gravity/2.])
-q, r = 1e3, 1
+q, r = 1e4, 1
 Q = q*np.identity(n)
 R = r*np.identity(m)
 n_pred = 100
@@ -275,9 +281,11 @@ controller_edmd = MPCControllerDense(sys_edmd, n_pred, dt, umin, umax, xmin, xma
 
 # Design MPC for lifted bilinear EDMD model:
 k = m
+n_lift_bedmd = model_bedmd.n_lift_reduced
 Q_fl = q*np.eye(int(2*n_lift_bedmd))
 R_fl = r*np.eye(n_lift_bedmd)
-C_h = C_bedmd[:2,:]
+C_h = model_bedmd.C[1:3,:]
+
 #C_stacked = np.zeros((int(2*k), int(2*n_lift_bedmd)))
 #C_stacked[:k, :n_lift_bedmd] = C_h
 #C_stacked[k:, n_lift_bedmd:] = C_h
@@ -289,8 +297,8 @@ G_lin = np.concatenate((np.zeros((n_lift_bedmd,n_lift_bedmd)), np.eye(n_lift_bed
 fb_sys = sc.signal.StateSpace(F_lin, G_lin, np.eye(int(2*n_lift_bedmd)), np.zeros((int(2*n_lift_bedmd),n_lift_bedmd)))
 fb_sys_d = fb_sys.to_discrete(dt)
 
-controller_bedmd = BilinearMpcController(n, m, k, n_lift_bedmd, n_pred, fb_sys_d, sys_bedmd, C_bedmd, C_h, xmin, xmax, umin, umax,
-                                          Q_fl, Q_fl, R_fl, set_pt.reshape((1,-1)))
+controller_bedmd = BilinearMpcController(n, m, k, n_lift_bedmd, n_pred, fb_sys_d, sys_bedmd, model_bedmd.C, C_h, xmin, xmax, umin, umax,
+                                          Q_fl, Q_fl, R_fl, set_pt.reshape((1,-1)), const_offset=hover_thrust)
 controller_bedmd.construct_controller()
 
 #xs_mpc_nom, us_mpc_nom = quadrotor.simulate(x_0, controller_nom, t_eval)
@@ -318,7 +326,8 @@ for ax, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_bedmd.T, ylabels):
 ax = axs[1,0]
 #ax.plot(t_eval[:-1], us_mpc_nom[:,0], linewidth=3, label='$u$, '+ legend_labels[0])
 #ax.plot(t_eval[:-1], us_mpc_edmd[:,0], linewidth=3, label='$u$, '+ legend_labels[1])
-ax.plot(t_eval[:-1], us_mpc_bedmd[:,0], linewidth=3, label='$u$, '+ legend_labels[2])
+ax.plot(t_eval[:-1], us_mpc_bedmd[:,0], linewidth=3, label='$u_1$, '+ legend_labels[2])
+ax.plot(t_eval[:-1], us_mpc_bedmd[:,0], linewidth=3, label='$u_2$, '+ legend_labels[2])
 ax.grid()
 ax.set_xlabel('$t$ (sec)', fontsize=16)
 ax.set_ylabel('$u$', fontsize=16)
