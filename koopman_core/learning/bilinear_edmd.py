@@ -3,36 +3,36 @@ from .edmd import Edmd
 import numpy as np
 
 class BilinearEdmd(Edmd):
-    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, cv=None, standardizer=None, C=None):
-        super(BilinearEdmd, self).__init__(n, m, basis, n_lift, n_traj, optimizer, cv=cv, standardizer=standardizer, C=C)
+    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, cv=None, standardizer=None, C=None, first_obs_const=True):
+        super(BilinearEdmd, self).__init__(n, m, basis, n_lift, n_traj, optimizer, cv=cv, standardizer=standardizer, C=C, first_obs_const=first_obs_const)
         self.B = []
 
     def fit(self, X, y, cv=False, override_kinematics=False):
         if override_kinematics:
-            y = y[:, int(self.n / 2):]
+            y = y[:, int(self.n / 2) + int(self.first_obs_const):]
 
         if cv:
             assert self.cv is not None, 'No cross validation method specified.'
             self.cv.fit(X,y)
-            mdl_coefs = self.cv.coef_
+            coefs = self.cv.coef_
         else:
             self.optimizer.fit(X, y)
-            mdl_coefs = self.optimizer.coef_
+            coefs = self.optimizer.coef_
 
-        if self.standardizer is None:
-            coefs = mdl_coefs
-        else:
-            coefs = self.standardizer.transform(mdl_coefs)
+        if self.standardizer is not None:
+            coefs = self.standardizer.transform(coefs)
 
         if override_kinematics:
-            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2))),
-                                       np.eye(int(self.n/2)),
-                                       np.zeros((int(self.n/2),self.n_lift-self.n))),axis=1)
-            self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]),axis=0)
-            for ii in range(self.m):
-                self.B.append(np.concatenate((np.zeros((int(self.n/2), self.n_lift)),
-                                                       coefs[:, self.n_lift * (ii + 1):self.n_lift * (ii + 2)]), axis=0))
+            const_dyn = np.zeros((int(self.first_obs_const), self.n_lift))
+            kin_dyn = np.concatenate((np.zeros((int(self.n / 2), int(self.n / 2) + int(self.first_obs_const))),
+                                      np.eye(int(self.n / 2)),
+                                      np.zeros((int(self.n / 2), self.n_lift - self.n - int(self.first_obs_const)))),
+                                     axis=1)
+            self.A = np.concatenate((const_dyn, kin_dyn, coefs[:, :self.n_lift]), axis=0)
 
+            for ii in range(self.m):
+                self.B.append(np.concatenate((np.zeros((int(self.n/2)+int(self.first_obs_const), self.n_lift)),
+                                     coefs[:, self.n_lift * (ii + 1):self.n_lift * (ii + 2)]), axis=0))
         else:
             self.A = coefs[:, :self.n_lift]
             for ii in range(self.m):
