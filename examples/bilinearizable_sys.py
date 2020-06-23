@@ -189,15 +189,16 @@ poly_features_fl_bedmd.fit(np.zeros((1,n)))
 n_lift_fl_bedmd = poly_features_fl_bedmd.n_output_features_
 C_fl_bedmd = np.zeros((n,n_lift_fl_bedmd))
 C_fl_bedmd[:,1:n+1] = np.eye(n)
+C_h_fl_bedmd = C_fl_bedmd[:m,:]
 
 basis_fl_bedmd = lambda x: poly_features_fl_bedmd.transform(x)
 optimizer_fl_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd, fit_intercept=False, selection='random')
 standardizer_fl_bedmd = preprocessing.StandardScaler(with_mean=False)
 
-model_fl_bedmd = FlBilinearLearner(n, m, basis_fl_bedmd, n_lift_fl_bedmd, n_traj, optimizer_fl_bedmd, C_fl_bedmd, standardizer=standardizer_fl_bedmd, C=C_fl_bedmd)
+model_fl_bedmd = FlBilinearLearner(n, m, basis_fl_bedmd, n_lift_fl_bedmd, n_traj, optimizer_fl_bedmd, C_h_fl_bedmd, standardizer=standardizer_fl_bedmd, C=C_fl_bedmd)
 X_fl_bedmd, y_fl_bedmd = model_fl_bedmd.process(xs, us, np.tile(t_eval,(n_traj,1)))
-model_fl_bedmd.fit_test(X_fl_bedmd, y_fl_bedmd, override_kinematics=True, l1_reg=alpha_bedmd)
-#model_fl_bedmd.fit(X_fl_bedmd, y_fl_bedmd, override_kinematics=True, l1_reg=alpha_bedmd)
+#model_fl_bedmd.fit_test(X_fl_bedmd, y_fl_bedmd, override_kinematics=True, l1_reg=alpha_bedmd)
+model_fl_bedmd.fit(X_fl_bedmd, y_fl_bedmd, override_kinematics=True, l1_reg=(alpha_bedmd+alpha_edmd)/2.)
 sys_fl_bedmd = BilinearLiftedDynamics(n_lift_fl_bedmd, m, model_fl_bedmd.A, model_fl_bedmd.B, C_fl_bedmd, basis_fl_bedmd)
 
 #TODO: Remove after debug -->
@@ -261,8 +262,8 @@ for ax, err_edmd_mean, err_edmd_std, err_bedmd_mean, err_bedmd_std, err_fl_bedmd
     ax.fill_between(ts_test[0,:-1], err_edmd_mean-err_edmd_std, err_edmd_mean+err_edmd_std, alpha=0.2, label='std, EDMD')
     ax.plot(ts_test[0,:-1], err_bedmd_mean, linewidth=3, label='mean, bEDMD')
     ax.fill_between(ts_test[0,:-1], err_bedmd_mean-err_bedmd_std, err_bedmd_mean+err_bedmd_std, alpha=0.2, label='std, bEDMD')
-    #ax.plot(ts_test[0,:-1], err_fl_bedmd_mean, linewidth=3, label='mean, FL bEDMD')
-    #ax.fill_between(ts_test[0,:-1], err_fl_bedmd_mean-err_fl_bedmd_std, err_fl_bedmd_mean+err_fl_bedmd_std, alpha=0.2, label='std, FL bEDMD')
+    ax.plot(ts_test[0,:-1], err_fl_bedmd_mean, linewidth=3, label='mean, FL bEDMD')
+    ax.fill_between(ts_test[0,:-1], err_fl_bedmd_mean-err_fl_bedmd_std, err_fl_bedmd_mean+err_fl_bedmd_std, alpha=0.2, label='std, FL bEDMD')
     ax.set_ylabel(ylabel, fontsize=16)
     ax.grid()
     ax.set_xlabel('$t$ (sec)', fontsize=16)
