@@ -40,13 +40,6 @@ class BilinearMpcController(Controller):
         G = self.bilinear_dynamics.G
         G_umax = np.sum(np.array([G[ii] * self.umax[ii] for ii in range(self.m)]), axis=0)
         G_umin = np.sum(np.array([G[ii] * self.umin[ii] for ii in range(self.m)]), axis=0)
-        #TODO: Remove -->
-        #C_x_stacked = np.zeros((self.n, int(2 * self.n_lift)))
-        #C_x_stacked[:self.k, :self.n_lift] = self.C_h
-        #C_x_stacked[self.k:, self.n_lift:] = self.C_h
-        #C_h_stacked = np.zeros((int(2 * self.k), int(2 * self.n_lift)))
-        #C_h_stacked[:self.k, :self.n_lift] = self.C_h
-        #C_h_stacked[self.k:, self.n_lift:] = self.C_h
 
         # Construct cvx problem:
         nu = cvx.Variable((self.n_lift, self.n_pred))
@@ -61,7 +54,7 @@ class BilinearMpcController(Controller):
         constraints = [eta_z[:,0] == self.eta_z_init]
         for k in range(self.n_pred):
             objective += cvx.quad_form(eta_z[:,k], self.Q) + cvx.quad_form(nu[:,k], self.R)
-            constraints += [eta_z[:,k+1] == self.fl_dynamics.A * eta_z[:,k] + self.fl_dynamics.B * nu[:,k]]
+            constraints += [eta_z[:,k+1] == self.fl_dynamics.A @ eta_z[:,k] + self.fl_dynamics.B @ nu[:,k]]
             constraints += [self.xmin <= self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]),
                             self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]) <= self.xmax]
             constraints += [self.C_h@F@G_umin@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) <= self.C_h@nu[:,k],
@@ -72,11 +65,10 @@ class BilinearMpcController(Controller):
 
     def eval(self, x, t):
         # TODO: Add support for update of reference trajectory (time-varying)
-        zd = self.bilinear_dynamics.phi_fun(self.set_pt).squeeze()  #TODO
+        zd = self.bilinear_dynamics.phi_fun(self.set_pt.reshape((1,-1))).squeeze()  #TODO
         zd_dot = np.zeros(self.n_lift)  #TODO
         zd_ddot = np.zeros(self.n_lift)  #TODO
         z = self.bilinear_dynamics.phi_fun(x.reshape((1,-1))).squeeze()
-        print(z.shape)
         z_dot = self.bilinear_dynamics.eval_dot(z, self.u_prev, t)
 
         # Update all reference parameters:
@@ -94,7 +86,7 @@ class BilinearMpcController(Controller):
         # Calculate feedback linearization matrices:
         F = self.bilinear_dynamics.F
         act = self.bilinear_dynamics.act(z, t)
-        C = self.bilinear_dynamics.Cx
+        C = self.C_h
 
         u = np.linalg.solve(C@F@act, C@(zd_ddot - F@F@zd + nu))
         self.u_prev = u

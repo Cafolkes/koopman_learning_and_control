@@ -35,7 +35,7 @@ class LinearMpcController(Controller):
 
         for k in range(self.n_pred):
             objective += cvx.quad_form(x[:,k] - self.set_pt, self.Q) + cvx.quad_form(u[:,k], self.R)
-            constraints += [x[:,k+1] == self.linear_dynamics.A * x[:,k] + self.linear_dynamics.B * u[:,k]]
+            constraints += [x[:,k+1] == self.linear_dynamics.A @ x[:,k] + self.linear_dynamics.B @ u[:,k]]
             constraints += [self.xmin <= x[:,k], x[:,k] <= self.xmax]
             constraints += [self.umin <= u[:,k], u[:,k] <= self.umax]
 

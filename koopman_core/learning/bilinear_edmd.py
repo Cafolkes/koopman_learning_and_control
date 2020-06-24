@@ -40,7 +40,7 @@ class BilinearEdmd(Edmd):
 
         #TODO: Add possibility of learning C-matrix.
 
-    def process(self, x, u, t):
+    def process(self, x, u, t, downsample_rate=1):
         assert x.shape[2] == self.n
 
         self.construct_bilinear_basis_()
@@ -55,10 +55,12 @@ class BilinearEdmd(Edmd):
         z_dot_flat = z_dot.T.reshape((self.n_lift, n_data_pts), order=order)
 
         if self.standardizer is None:
-            return z_bilinear_flat.T, z_dot_flat.T
+            z_bilinear_flat, z_dot_flat = z_bilinear_flat.T, z_dot_flat.T
         else:
             self.standardizer.fit(z_bilinear_flat.T)
-            return self.standardizer.transform(z_bilinear_flat.T), z_dot_flat.T
+            z_bilinear_flat, z_dot_flat = self.standardizer.transform(z_bilinear_flat.T), z_dot_flat.T
+
+        return z_bilinear_flat[::downsample_rate, :], z_dot_flat[::downsample_rate, :]
 
     def predict(self, x, u):
         return np.dot(self.C, np.dot(self.A, x) + np.dot(self.B, u))

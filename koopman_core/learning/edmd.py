@@ -51,12 +51,10 @@ class Edmd():
 
         #TODO: Add possibility of learning C-matrix.
 
-    def process(self, x, u, t):
+    def process(self, x, u, t, downsample_rate=1):
         assert x.shape[0] == self.n_traj
         assert x.shape[2] == self.n
 
-
-        #z = self.lift(x, u)
         z = np.array([self.lift(x[ii, :-1, :], u[ii,:,:]) for ii in range(self.n_traj)])
         z_u = np.concatenate((z, u), axis=2)
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii,:-1]) for ii in range(self.n_traj)])
@@ -67,10 +65,12 @@ class Edmd():
         z_dot_flat = z_dot.T.reshape((self.n_lift, n_data_pts), order=order)
 
         if self.standardizer is None:
-            return z_u_flat.T, z_dot_flat.T
+            z_u_flat, z_dot_flat = z_u_flat.T, z_dot_flat.T
         else:
             self.standardizer.fit(z_u_flat.T)
-            return self.standardizer.transform(z_u_flat.T), z_dot_flat.T
+            z_u_flat, z_dot_flat = self.standardizer.transform(z_u_flat.T), z_dot_flat.T
+
+        return z_u_flat[::downsample_rate,:], z_dot_flat[::downsample_rate,:]
 
     def predict(self, x, u):
         """predict compute the right hand side of z_dot

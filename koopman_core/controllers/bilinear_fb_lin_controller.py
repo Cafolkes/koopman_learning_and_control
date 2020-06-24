@@ -26,7 +26,7 @@ class BilinearFBLinController(Controller):
         self.u_prev = zeros(self.dynamics.m)
 
     def eval(self, x, t):
-        z = self.dynamics.phi_fun(x)
+        z = self.dynamics.phi_fun(x.reshape((1,-1))).squeeze()
         z_dot = self.dynamics.eval_dot(z, self.u_prev, t)
 
         eta_z = concatenate((z-self.output.z_d(t), z_dot - self.output.z_d_dot(t)))
