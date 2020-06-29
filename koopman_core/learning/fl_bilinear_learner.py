@@ -6,28 +6,27 @@ from koopman_core.learning import BilinearEdmd
 
 
 class FlBilinearLearner(BilinearEdmd):
-    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, C_h, cv_values=None, cv=None, standardizer=None, C=None, first_obs_const=True, alpha=1e-10):
+    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, C_h, cv=None, standardizer=None, C=None, first_obs_const=True, alpha=1e-6):
         super(FlBilinearLearner, self).__init__(n, m, basis, n_lift, n_traj, optimizer, cv=cv, standardizer=standardizer, C=C, first_obs_const=first_obs_const)
         self.C_h = C_h
         self.alpha=alpha
-        self.cv_values = cv_values
 
     def fit(self, X, y, cv=False, override_kinematics=False, l1_reg=0.):
         # Perform bEDMD to learn A:
         super(FlBilinearLearner, self).fit(X, y, cv=False, override_kinematics=override_kinematics)
 
-        # Prepare data matrices for learning Bs:
-        X_sdp, y_sdp = self._process_sdp(X, y)
-        if override_kinematics:
-            y_sdp = y_sdp[:, int(self.n / 2) + int(self.first_obs_const):]
-
         # Formulate SDP that learns Bs guaranteed to be feedback linearizable:
         if cv:
-            l1_reg = self._cv_sdp_constrained_cvxpy(X_sdp, y_sdp, X[:,:self.n_lift]) #TODO: Implement full tuning script
-            print('tuned l1 reg: ', l1_reg)
-            coefs = self._em_fit_sdp_constrained_cvxpy(X, y, self.A, 2, l1_reg=l1_reg)
-        else:
-            coefs = self._em_fit_sdp_constrained_cvxpy(X, y, self.A, 2, l1_reg=l1_reg)
+            assert self.cv is not None, 'No cross validation method specified.'
+            X_sdp, y_sdp = self._process_sdp(X, y)
+            if override_kinematics:
+                y_sdp = y_sdp[:, int(self.n / 2) + int(self.first_obs_const):]
+
+            self.cv.fit(X_sdp, y_sdp)
+            l1_reg = self.cv.alpha_
+            print('Bilinear tuned value: ', l1_reg)
+
+        coefs = self._em_fit_sdp_constrained_cvxpy(X, y, self.A, 2, l1_reg=l1_reg)
 
         # Store the learned Bs:
         if self.standardizer is not None:
@@ -117,23 +116,29 @@ class FlBilinearLearner(BilinearEdmd):
         A_A = cp.Variable((A_init[l:, :].shape))
         B_A = cp.Parameter((self.m * self.n_lift, y.shape[1] - l))
 
+        # Equilibrium point constraint:
+        z_0 = self.basis(np.zeros((1,4))).T
+
         cost_A = cp.norm(y[:, l:] - (X[:, :self.n_lift] @ A_A.T + X[:, self.n_lift:] @ B_A), 'fro')
         cost_A += l1_reg * cp.norm(A_A, p=1)
         constraints_A = []
         for x in X_const_processed:
-            constraints_A += [self.C_h[:, l:] @ A_A[:,l:] @ B_A.T @ x + (self.C_h[:, l:] @ A_A[:,l:] @ B_A.T @ x).T
+            constraints_A += [(self.C_h @ cp.vstack([self.A[:l,:], A_A]))[:,l:] @ B_A.T @ x + ((self.C_h @ cp.vstack([self.A[:l,:], A_A]))[:,l:] @ B_A.T @ x).T
                               - 2 * self.alpha * np.eye(self.m) >> 0]
+
+        constraints_A += [A_A@z_0 == np.zeros((z_0.shape[0]-l,1))]
         prob_A = cp.Problem(cp.Minimize(cost_A), constraints_A)
 
         # Define cvx problem to learn B-matrix:
         A_B = cp.Parameter((A_init[l:,:].shape))
+        #A_B = cp.Variable((A_init[l:, :].shape)) #TODO: Remove
         B_B = cp.Variable((self.m*self.n_lift, y.shape[1]-l))
 
         cost_B = cp.norm(y[:,l:] - (X[:,:self.n_lift]@A_B.T + X[:,self.n_lift:]@B_B),'fro')
         cost_B += l1_reg*cp.norm(B_B, p=1)
         constraints_B = []
         for x in X_const_processed:
-            constraints_B += [self.C_h[:,l:]@A_B[:,l:]@B_B.T@x + (self.C_h[:,l:]@A_B[:,l:]@B_B.T@x).T
+            constraints_B += [(self.C_h @ cp.vstack([self.A[:l,:], A_B]))[:,l:]@B_B.T@x + ((self.C_h @ cp.vstack([self.A[:l,:], A_B]))[:,l:]@B_B.T@x).T
                             - 2*self.alpha*np.eye(self.m) >> 0]
         prob_B = cp.Problem(cp.Minimize(cost_B), constraints_B)
         mosek_params = {'MSK_IPAR_NUM_THREADS': 8}

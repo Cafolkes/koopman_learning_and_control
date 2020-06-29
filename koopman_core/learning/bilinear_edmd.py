@@ -44,10 +44,10 @@ class BilinearEdmd(Edmd):
         assert x.shape[2] == self.n
 
         self.construct_bilinear_basis_()
-        #z = super(BilinearEdmd, self).lift(x, u)
         z = np.array([super(BilinearEdmd, self).lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii, :-1]) for ii in range(self.n_traj)])
-        z_bilinear = self.lift(x, u) #TODO: Wrong shape, look into lifting func
+        #z_bilinear = self.lift(x, u)
+        z_bilinear = np.array([self.lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
 
         order = 'F'
         n_data_pts = self.n_traj * (t[0,:].shape[0] - 1)
@@ -66,13 +66,15 @@ class BilinearEdmd(Edmd):
         return np.dot(self.C, np.dot(self.A, x) + np.dot(self.B, u))
 
     def lift(self, x, u):
-        return np.atleast_2d([self.bilinear_basis(x[ii,:-1,:], u[ii,:,:]) for ii in range(self.n_traj)])
+        return np.array([self.bilinear_basis(x[ii, :], u[ii, :]) for ii in range(x.shape[0])])
 
     def construct_bilinear_basis_(self):
-        basis_lst = []
-        basis_lst.append(lambda x, u: self.basis(x))
-        for ii in range(self.m):
-            basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[:, ii].reshape(-1,1)))
+        basis_lst = [lambda x, u: self.basis(x)]
 
-        basis_stacked = lambda x, u: np.array([basis_lst[ii](x, u) for ii in range(self.m + 1)]).flatten()
-        self.bilinear_basis = lambda x, u: np.array([basis_stacked(x[ii,:].reshape(1,-1), u[ii,:].reshape(1,-1)) for ii in range(x.shape[0])]) #TODO: Get rid of .flatten() (makes it too flat)
+        #TODO: Implement bilinearization for general number of inputs (below implementation not working)
+        #for ii in range(self.m):
+        #    basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[ii]))
+        basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[0]))
+        basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[1]))
+
+        self.bilinear_basis = lambda x, u: np.array([basis_lst[ii](x.reshape(1,-1),u) for ii in range(self.m+1)]).flatten()

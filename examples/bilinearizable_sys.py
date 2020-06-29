@@ -12,7 +12,7 @@ from sklearn import preprocessing, linear_model
 from koopman_core.dynamics import BilinearLiftedDynamics
 from koopman_core.learning.bilinear_edmd import BilinearEdmd
 from koopman_core.controllers.openloop_controller import OpenLoopController
-from koopman_core.controllers import LinearMpcController, MPCControllerDense, BilinearMpcController
+from koopman_core.controllers import LinearMpcController, MPCController, MPCControllerDense, BilinearMpcController
 from core.dynamics import ConfigurationDynamics
 from koopman_core.learning.utils import differentiate_vec
 from koopman_core.learning import FlBilinearLearner
@@ -25,11 +25,11 @@ class FiniteDimKoopSys(RoboticDynamics):
         self.params = lambd, mu, c
 
     def D(self, q):
-        return np.array([[1, 0], [0, (q[0] + 1) ** (-1)]])
+        return np.array([[1, 0], [0, (q[0] + 2) ** (-1)]])
 
     def C(self, q, q_dot):
         labmd, mu, c = self.params
-        return -np.array([[lambd, 0], [(q[0] + 1) ** (-1) * (2 * lambd - mu) * c * q_dot[0], (q[0] + 1) ** (-1) * mu]])
+        return -np.array([[lambd, 0], [(q[0] + 2) ** (-1) * (2 * lambd - mu) * c * q_dot[0], (q[0] + 2) ** (-1) * mu]])
 
     def G(self, q):
         return np.array([0, 0])
@@ -37,37 +37,39 @@ class FiniteDimKoopSys(RoboticDynamics):
     def B(self, q):
         return np.array([[1, 0], [0, 1]])
 
-class CartPoleOutput(ConfigurationDynamics):
-    def __init__(self, cart_pole, x_d, t_d):
-        ConfigurationDynamics.__init__(self, cart_pole, 1)
-        self.cart_pole = cart_pole
-        self.x_d = x_d
-        self.t_d = t_d
-        self.x_d_dot = differentiate_vec(self.x_d, self.t_d)
+class BilinearSysOutput(ConfigurationDynamics):
+    def __init__(self, bilinear_dynamics, C_h):
+        ConfigurationDynamics.__init__(self, bilinear_dynamics, 1)
+        self.bilinear_dynamics = bilinear_dynamics
+        self.C_h = C_h
 
-    def y(self, q):
-        return q
+    def y(self, x):
+        z = self.bilinear_dynamics.phi_fun(x)
+        return np.dot(self.C_h, z)
 
-    def dydq(self, q):
-        return np.eye(2)
+    def dydx(self, x):
+        return np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
 
-    def d2ydq2(self, q):
-        return np.zeros((2, 2, 2))
+    def d2ydz2(self, x):
+        return np.zeros((1, self.k, 4))
 
     def y_d(self, t):
-        return self.desired_state_(t)[:2]
+        return np.dot(self.C_h, self.z_d(t))
 
     def y_d_dot(self, t):
-        return self.desired_state_(t)[2:]
+        return np.dot(self.C_h, self.z_d_dot(t))
 
     def y_d_ddot(self, t):
-        return self.desired_state_dot_(t)[2:]
+        return np.dot(self.C_h, self.z_d_ddot(t))
 
-    def desired_state_(self, t):
-        return [np.interp(t, self.t_d.flatten(),self.x_d[:,ii].flatten()) for ii in range(self.x_d.shape[1])]
+    def z_d(self, t):
+        return self.bilinear_dynamics.phi_fun([[0, 0, 0, 0]]).squeeze()
 
-    def desired_state_dot_(self, t):
-        return [np.interp(t, self.t_d.flatten(),self.x_d_dot[:,ii].flatten()) for ii in range(self.x_d_dot.shape[1])]
+    def z_d_dot(self, t):
+        return np.zeros(self.bilinear_dynamics.n)
+
+    def z_d_ddot(self, t):
+        return np.zeros(self.bilinear_dynamics.n)
 
 # Bilinearizable system parameters:
 lambd, mu, c = .3, .2, -.5
@@ -82,7 +84,7 @@ A_nom = np.array([[0, 0, 1, 0],
 B_nom = np.array([[0, 0],
                   [0, 0],
                   [1, 0],
-                  [0, 1]])
+                  [0, 2]])
 
 q, r = 5, 1
 Q_fb = q * np.identity(4)
@@ -98,9 +100,10 @@ n_traj = 50                                                 # Number of trajecto
 dt = 1.0e-2                                                 # Time step length
 N = int(4./dt)                                              # Number of time steps
 t_eval = dt * np.arange(N + 1)                              # Simulation time points
-traj_bounds = [2., 2., 2., 2.]                                        # State constraints, [q, q_dot]
+traj_max = [2., 2., 2., 2.]                                 # State constraints, [q, q_dot]
+traj_min = [-.5, -2., -1., -2.]                                 # State constraints, [q, q_dot]
 pert_noise_var = 2.                                        # Variance of controller perturbation noise
-downsample_rate = 2
+downsample_rate = 3
 
 #xmax = np.array([2, 0.35,2.,2.])                       # State constraints, [x, theta, x_dot, theta_dot]
 #xmin = -xmax
@@ -109,14 +112,20 @@ downsample_rate = 2
 #umin = -umax
 
 #EDMD parameters:
-alpha_edmd = 0.0676
+alpha_edmd = 7e-2
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd = 0.167
+alpha_bedmd = 4e-2
 tune_mdl_bedmd = False
 
-learn_models = False
+#Feedback linearizable bilinear EDMD parameters:
+alpha_fl_bedmd = 6e-2
+#alpha_fl_bedmd = 1e-3
+tune_mdl_fl_bedmd = False
+
+
+learn_models = True
 model_fname = 'bilinearizable_sys_models'
 
 # Prediction performance evaluation parameters:
@@ -134,7 +143,7 @@ if learn_models:
     n_cols = 10
     plt.figure(figsize=(12,12*n_traj/(n_cols**2)))
     for ii in range(n_traj):
-        x_0 = np.asarray([rand.uniform(-i,i)  for i in traj_bounds])
+        x_0 = np.asarray([rand.uniform(i,j) for i,j in zip(traj_min, traj_max)])
         xs[ii,:,:], us[ii,:,:] = finite_dim_koop_sys.simulate(x_0, pert_lqr_controller, t_eval)
 
         plt.subplot(int(np.ceil(n_traj/n_cols)),n_cols,ii+1)
@@ -142,7 +151,6 @@ if learn_models:
         plt.plot(t_eval, xs[ii,:,1], 'r', label='$\\theta$')
     plt.suptitle('Training data',y=0.94)
     plt.show()
-
 
     #EDMD:
     print('Fitting EDMD...')
@@ -164,6 +172,11 @@ if learn_models:
     sys_edmd = LinearLiftedDynamics(model_edmd.A, model_edmd.B, C_edmd, basis_edmd)
     if tune_mdl_edmd:
         print(model_edmd.cv.alpha_)
+
+    #TODO: Remove after debug -->
+    plt.figure()
+    plt.plot(X_edmd[:,1])
+    plt.show()
 
     #Bilinear EDMD:
     print('Fitting bilinear EDMD...')
@@ -199,11 +212,10 @@ if learn_models:
     optimizer_fl_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd, fit_intercept=False, selection='random')
     standardizer_fl_bedmd = preprocessing.StandardScaler(with_mean=False)
 
-    cv_fl_bedmd = False
-    cv_vals_fl_bedmd = np.linspace(1e-3, 1, 10)
-    model_fl_bedmd = FlBilinearLearner(n, m, basis_fl_bedmd, n_lift_fl_bedmd, n_traj, optimizer_fl_bedmd, C_h_fl_bedmd, cv_values=cv_vals_fl_bedmd,standardizer=standardizer_fl_bedmd, C=C_fl_bedmd)
+    cv_fl_bedmd = linear_model.MultiTaskLassoCV(fit_intercept=False, n_jobs=-1, cv=3, selection='random')
+    model_fl_bedmd = FlBilinearLearner(n, m, basis_fl_bedmd, n_lift_fl_bedmd, n_traj, optimizer_fl_bedmd, C_h_fl_bedmd, cv=cv_fl_bedmd, standardizer=standardizer_fl_bedmd, C=C_fl_bedmd)
     X_fl_bedmd, y_fl_bedmd = model_fl_bedmd.process(xs, us, np.tile(t_eval,(n_traj,1)), downsample_rate=downsample_rate)
-    model_fl_bedmd.fit(X_fl_bedmd, y_fl_bedmd, cv=cv_fl_bedmd, override_kinematics=True, l1_reg=1e-3)
+    model_fl_bedmd.fit(X_fl_bedmd, y_fl_bedmd, cv=tune_mdl_fl_bedmd, override_kinematics=True, l1_reg=alpha_fl_bedmd)
     sys_fl_bedmd = BilinearLiftedDynamics(n_lift_fl_bedmd, m, model_fl_bedmd.A, model_fl_bedmd.B, C_fl_bedmd, basis_fl_bedmd)
 
     #Save models:
@@ -217,7 +229,7 @@ else:
     model_edmd = p['model_edmd']
     sys_bedmd = p['sys_bedmd']
     model_bedmd = p['model_bedmd']
-    sys_fl_bedmd = p['sys_edmd']
+    sys_fl_bedmd = p['sys_fl_bedmd']
     model_fl_bedmd = p['model_fl_bedmd']
 
     poly_features_edmd = preprocessing.PolynomialFeatures(degree=3)
@@ -228,25 +240,21 @@ else:
     poly_features_fl_bedmd.fit(np.zeros((1, n)))
 
 #Compare open loop performance:
-t_eval = t_eval[:200]
 pert_lqr_controller = PerturbedController(finite_dim_koop_sys, pd_controller, pert_noise_var)
 xs_test, xs_edmd_test, xs_bedmd_test, xs_fl_bedmd_test, us_test, ts_test = [], [], [], [], [], []
 for ii in range(n_traj_test):
-    x_0 = np.asarray([rand.uniform(-i,i)  for i in traj_bounds])
+    x_0 = np.asarray([rand.uniform(i,j) for i,j in zip(traj_min, traj_max)])
     xs_tmp, us_tmp = finite_dim_koop_sys.simulate(x_0, pert_lqr_controller, t_eval)
     ol_controller = OpenLoopController(sys_bedmd, us_tmp, t_eval[:-1])
 
-    #z_0_edmd = basis_edmd(np.atleast_2d(x_0)).squeeze()
     z_0_edmd = sys_edmd.phi_fun(np.atleast_2d(x_0)).squeeze()
     zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller, t_eval[:-1])
     xs_edmd_tmp = np.dot(sys_edmd.Cx, zs_edmd_tmp.T)
 
-    #z_0_bedmd = basis_bedmd(np.atleast_2d(x_0)).squeeze()
     z_0_bedmd = sys_bedmd.phi_fun(np.atleast_2d(x_0)).squeeze()
     zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller, t_eval[:-1])
     xs_bedmd_tmp = np.dot(sys_bedmd.Cx, zs_bedmd_tmp.T)
 
-    #z_0_fl_bedmd = basis_fl_bedmd(np.atleast_2d(x_0)).squeeze()
     z_0_fl_bedmd = sys_fl_bedmd.phi_fun(np.atleast_2d(x_0)).squeeze()
     zs_fl_bedmd_tmp, _ = sys_fl_bedmd.simulate(z_0_fl_bedmd, ol_controller, t_eval[:-1])
     xs_fl_bedmd_tmp = np.dot(sys_fl_bedmd.Cx, zs_fl_bedmd_tmp.T)
@@ -276,7 +284,6 @@ error_fl_bedmd_mean = np.mean(error_fl_bedmd, axis=0)
 error_fl_bedmd_std = np.std(error_fl_bedmd, axis=0)
 mse_fl_bedmd = np.mean(np.mean(np.mean(np.square(error_fl_bedmd))))
 
-
 fig, axs = plt.subplots(2, 2, figsize=(10, 6))
 ylabels = ['$e_{q_1}$', '$e_{q_2}$', '$e_{\dot{q}_1}$', '$e_{\dot{q}_2}$']
 fig.suptitle('Open loop predicition error of EDMD and bilinear EDMD models', y=1.025, fontsize=18)
@@ -300,15 +307,15 @@ print('Improvement EDMD -> bEDMD: ', (1-mse_bedmd/mse_edmd)*100, ' percent\nImpr
 
 #Compare closed loop performance:
 # MPC parameters:
-x_0 = np.array([1., 0.2, 0., 0.])
-umax = np.array([100., 100.])
+x_0 = np.array([.8, 0.2, 0., 0.])
+umax = np.array([20., 20.])
 umin = -umax
 xmax = np.array([10., 10., 10., 10.])
 xmin = -xmax
-q, r = 1e4, 1
+q, r = 1e1, 1
 Q = q*np.identity(n)
 R = r*np.identity(m)
-n_pred = 100
+n_pred = 200
 set_pt = np.zeros(n)
 x_d = np.tile(set_pt.reshape(-1,1), (1,t_eval.shape[0]))
 
@@ -318,6 +325,7 @@ lin_sys_d = lin_sys.to_discrete(dt)
 A_d, B_d = lin_sys_d.A, lin_sys_d.B
 controller_nom = LinearMpcController(n, m, n, n_pred, lin_sys_d, xmin, xmax, umin, umax, Q, Q, R, set_pt)
 controller_nom.construct_controller()
+#controller_nom = MPCController(nominal_sys, n_pred, dt, umin, umax, xmin, xmax, Q, R, Q, x_d)
 
 # Design MPC for lifted linear EDMD model:
 controller_edmd = MPCControllerDense(sys_edmd, n_pred, dt, umin, umax, xmin, xmax, Q, R, Q, x_d, lifting=True,
@@ -326,26 +334,35 @@ controller_edmd = MPCControllerDense(sys_edmd, n_pred, dt, umin, umax, xmin, xma
 # Design MPC for lifted bilinear EDMD model:
 k = m
 Q_fl = q*np.eye(int(2*model_bedmd.n_lift))
+#Q_fl = np.zeros((int(2*model_bedmd.n_lift),int(2*model_bedmd.n_lift)))
+#Q_fl[:model_bedmd.n_lift, :model_bedmd.n_lift] = model_bedmd.C.T@Q@model_bedmd.C
 R_fl = r*np.eye(model_bedmd.n_lift)
 C_h = model_bedmd.C[:k,:]
-#C_stacked = np.zeros((int(2*k), int(2*n_lift_bedmd)))
-#C_stacked[:k, :n_lift_bedmd] = C_h
-#C_stacked[k:, n_lift_bedmd:] = C_h
 
-f_eta = np.concatenate((np.zeros((model_bedmd.n_lift,model_bedmd.n_lift)), np.eye(model_bedmd.n_lift)), axis=1)
-f_eta_dot = np.concatenate((sys_bedmd.F@sys_bedmd.F, np.zeros((model_bedmd.n_lift,model_bedmd.n_lift))), axis=1)
+f_eta = np.concatenate((np.zeros((model_fl_bedmd.n_lift,model_fl_bedmd.n_lift)), np.eye(model_fl_bedmd.n_lift)), axis=1)
+f_eta_dot = np.concatenate((sys_fl_bedmd.F@sys_fl_bedmd.F, np.zeros((model_fl_bedmd.n_lift,model_fl_bedmd.n_lift))), axis=1)
 F_lin = np.concatenate((f_eta, f_eta_dot), axis=0)
-G_lin = np.concatenate((np.zeros((model_bedmd.n_lift,model_bedmd.n_lift)), np.eye(model_bedmd.n_lift)), axis=0)
-fb_sys = sc.signal.StateSpace(F_lin, G_lin, np.eye(int(2*model_bedmd.n_lift)), np.zeros((int(2*model_bedmd.n_lift),model_bedmd.n_lift)))
+G_lin = np.concatenate((np.zeros((model_fl_bedmd.n_lift,model_fl_bedmd.n_lift)), np.eye(model_fl_bedmd.n_lift)), axis=0)
+fb_sys = sc.signal.StateSpace(F_lin, G_lin, np.eye(int(2*model_fl_bedmd.n_lift)), np.zeros((int(2*model_fl_bedmd.n_lift),model_bedmd.n_lift)))
 fb_sys_d = fb_sys.to_discrete(dt)
 
-controller_bedmd = BilinearMpcController(n, m, k, model_bedmd.n_lift, n_pred, fb_sys_d, sys_bedmd, model_bedmd.C, C_h, xmin, xmax, umin, umax,
+controller_bedmd = BilinearMpcController(n, m, k, model_fl_bedmd.n_lift, n_pred, fb_sys_d, sys_fl_bedmd, model_fl_bedmd.C, C_h, xmin, xmax, umin, umax,
                                           Q_fl, Q_fl, R_fl, set_pt.reshape((1,-1)))
 controller_bedmd.construct_controller()
 
+# Design FL for lifted bilinear EDMD model: #TODO: Remove after debug...
+from scipy.linalg import solve_continuous_are
+from koopman_core.controllers import BilinearFBLinController
+#output_fl = BilinearSysOutput(sys_fl_bedmd, C_h)
+#P = solve_continuous_are(F_lin, G_lin, Q_fl, R_fl)
+#K = -np.linalg.inv(R_fl)@G_lin.T@P
+#bl_fb_lin = BilinearFBLinController(sys_fl_bedmd, output_fl, K)
+
 xs_mpc_nom, us_mpc_nom = finite_dim_koop_sys.simulate(x_0, controller_nom, t_eval)
 xs_mpc_edmd, us_mpc_edmd = finite_dim_koop_sys.simulate(x_0, controller_edmd, t_eval)
+print('Simulating fl beedmd controller...')
 xs_mpc_bedmd, us_mpc_bedmd = finite_dim_koop_sys.simulate(x_0.reshape((1,-1)), controller_bedmd, t_eval)
+#xs_mpc_bedmd, us_mpc_bedmd = finite_dim_koop_sys.simulate(x_0.reshape((1,-1)), bl_fb_lin, t_eval)
 
 cost_nom = np.cumsum(np.diag(xs_mpc_nom[1:,:] @ Q @ xs_mpc_nom[1:,:].T) + np.diag(us_mpc_nom @ R @ us_mpc_nom.T))
 cost_edmd = np.cumsum(np.diag(xs_mpc_edmd[1:,:] @ Q @ xs_mpc_edmd[1:,:].T) + np.diag(us_mpc_edmd @ R @ us_mpc_edmd.T))
