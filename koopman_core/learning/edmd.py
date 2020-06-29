@@ -6,7 +6,7 @@ class Edmd():
     Base class for edmd-type methods. Implements baseline edmd with the possible addition of l1 and/or l2 regularization.
     Overload fit for more specific methods.
     '''
-    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, cv=None, standardizer=None, C=None):
+    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, cv=None, standardizer=None, C=None, first_obs_const=True):
         self.n = n
         self.n_lift = n_lift
         self.n_traj = n_traj
@@ -16,37 +16,33 @@ class Edmd():
         self.C = C
 
         self.basis = basis
+        self.first_obs_const = first_obs_const
         self.optimizer = optimizer
         self.cv = cv
         self.standardizer = standardizer
 
     def fit(self, X, y, cv=False, override_kinematics=False, first_obs_const=True):
         if override_kinematics:
-            y = y[:, int(self.n / 2)+int(first_obs_const):]
+            y = y[:,int(self.n/2)+int(self.first_obs_const):]
 
         if cv:
             assert self.cv is not None, 'No cross validation method specified.'
             self.cv.fit(X,y)
-            mdl_coefs = self.cv.coef_
+            coefs = self.cv.coef_
         else:
             self.optimizer.fit(X, y)
-            mdl_coefs = self.optimizer.coef_
+            coefs = self.optimizer.coef_
 
-        if self.standardizer is None:
-            coefs = mdl_coefs
-        else:
-            coefs = self.standardizer.transform(mdl_coefs)
+        if self.standardizer is not None:
+            coefs = self.standardizer.transform(coefs)
 
         if override_kinematics:
-            kin_dyn = np.concatenate((np.zeros((int(self.n / 2), int(self.n / 2) + int(first_obs_const))),
-                                      np.eye(int(self.n / 2)),
-                                      np.zeros((int(self.n / 2), self.n_lift - self.n - int(first_obs_const)))), axis=1)
-            if first_obs_const:
-                self.A = np.concatenate((np.zeros((1, self.n_lift)), kin_dyn, coefs[:, :self.n_lift]), axis=0)
-            else:
-                self.A = np.concatenate((kin_dyn, coefs[:, :self.n_lift]), axis=0)
-
-            self.B = np.concatenate((np.zeros((int(self.n/2)+int(first_obs_const), self.m)),
+            const_dyn = np.zeros((int(self.first_obs_const),self.n_lift))
+            kin_dyn = np.concatenate((np.zeros((int(self.n/2),int(self.n/2)+int(self.first_obs_const))),
+                                       np.eye(int(self.n/2)),
+                                       np.zeros((int(self.n/2),self.n_lift-self.n-int(self.first_obs_const)))),axis=1)
+            self.A = np.concatenate((const_dyn, kin_dyn, coefs[:, :self.n_lift]),axis=0)
+            self.B = np.concatenate((np.zeros((int(self.n/2)+int(self.first_obs_const), self.m)),
                                      coefs[:,self.n_lift:]), axis=0)
 
         else:
@@ -55,7 +51,7 @@ class Edmd():
 
         #TODO: Add possibility of learning C-matrix.
 
-    def process(self, x, u, t):
+    def process(self, x, u, t, downsample_rate=1):
         assert x.shape[0] == self.n_traj
         assert x.shape[2] == self.n
 
@@ -69,10 +65,12 @@ class Edmd():
         z_dot_flat = z_dot.T.reshape((self.n_lift, n_data_pts), order=order)
 
         if self.standardizer is None:
-            return z_u_flat.T, z_dot_flat.T
+            z_u_flat, z_dot_flat = z_u_flat.T, z_dot_flat.T
         else:
             self.standardizer.fit(z_u_flat.T)
-            return self.standardizer.transform(z_u_flat.T), z_dot_flat.T
+            z_u_flat, z_dot_flat = self.standardizer.transform(z_u_flat.T), z_dot_flat.T
+
+        return z_u_flat[::downsample_rate,:], z_dot_flat[::downsample_rate,:]
 
     def predict(self, x, u):
         """predict compute the right hand side of z_dot

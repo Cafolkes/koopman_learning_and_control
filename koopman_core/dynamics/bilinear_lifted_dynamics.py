@@ -30,8 +30,9 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         self.Cx = Cx
         self.phi_fun = phi_fun
 
+
     def drift(self, x, t):
         return dot(self.F, x)
 
     def act(self, x, t):
-        return array([dot(g, x) for g in self.G]).T
+        return array([g@x for g in self.G]).T

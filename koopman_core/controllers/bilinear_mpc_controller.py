@@ -37,8 +37,12 @@ class BilinearMpcController(Controller):
 
     def construct_controller(self):
         # Precompute static matrices:
-        F = self.bilinear_dynamics.F
-        G = self.bilinear_dynamics.G
+        try:
+            F = self.bilinear_dynamics.F
+            G = self.bilinear_dynamics.G
+        except:
+            F = self.bilinear_dynamics.A
+            G = self.bilinear_dynamics.B
         G_umax = np.sum(np.array([G[ii] * self.umax[ii] for ii in range(self.m)]), axis=0)
         G_umin = np.sum(np.array([G[ii] * self.umin[ii] for ii in range(self.m)]), axis=0)
 
@@ -55,18 +59,19 @@ class BilinearMpcController(Controller):
         constraints = [eta_z[:,0] == self.eta_z_init]
         for k in range(self.n_pred):
             objective += cvx.quad_form(eta_z[:,k], self.Q) + cvx.quad_form(nu[:,k], self.R)
-            constraints += [eta_z[:,k+1] == self.fl_dynamics.A * eta_z[:,k] + self.fl_dynamics.B * nu[:,k]]
-            #constraints += [self.xmin <= self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]),
-            #                self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]) <= self.xmax]
-            #constraints += [self.C_h@F@G_umin@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) <= self.C_h@nu[:,k],
-            #                self.C_h@F@G_umax@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) >= self.C_h@nu[:,k]]
+
+            constraints += [eta_z[:,k+1] == self.fl_dynamics.A @ eta_z[:,k] + self.fl_dynamics.B @ nu[:,k]]
+            constraints += [self.xmin <= self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]), #TODO: Reinsert
+                            self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]) <= self.xmax]
+            constraints += [self.C_h@F@G_umin@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) <= self.C_h@nu[:,k],
+                            self.C_h@F@G_umax@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) >= self.C_h@nu[:,k]]
 
         objective += cvx.quad_form(eta_z[:,self.n_pred], self.Q_n)
         self.mpc_prob = cvx.Problem(cvx.Minimize(objective), constraints)
 
     def eval(self, x, t):
         # TODO: Add support for update of reference trajectory (time-varying)
-        zd = self.bilinear_dynamics.phi_fun(self.set_pt).squeeze()  #TODO
+        zd = self.bilinear_dynamics.phi_fun(self.set_pt.reshape((1,-1))).squeeze()  #TODO
         zd_dot = np.zeros(self.n_lift)  #TODO
         zd_ddot = np.zeros(self.n_lift)  #TODO
         z = self.bilinear_dynamics.phi_fun(x.reshape((1,-1))).squeeze()
@@ -91,6 +96,11 @@ class BilinearMpcController(Controller):
 
         u = np.linalg.solve(C@F@act, C@(zd_ddot - F@F@zd + nu)) + self.const_offset
         self.u_prev = u
+
+        print(x)
+        print(z)
+        print(nu, u)
+
 
         return u
 
