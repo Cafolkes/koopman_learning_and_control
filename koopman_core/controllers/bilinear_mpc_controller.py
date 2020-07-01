@@ -34,6 +34,7 @@ class BilinearMpcController(Controller):
         self.zd_dot = None
         self.zd_ddot = None
         self.u_prev = np.zeros(self.m)
+        self.nu_prev = np.zeros(self.n_lift)
 
     def construct_controller(self):
         # Precompute static matrices:
@@ -58,7 +59,7 @@ class BilinearMpcController(Controller):
         objective = 0
         constraints = [eta_z[:,0] == self.eta_z_init]
         for k in range(self.n_pred):
-            objective += cvx.quad_form(eta_z[:,k], self.Q) + cvx.quad_form(nu[:,k], self.R)
+            objective += cvx.quad_form(eta_z[:,k+1], self.Q) + cvx.quad_form(nu[:,k], self.R)
 
             constraints += [eta_z[:,k+1] == self.fl_dynamics.A @ eta_z[:,k] + self.fl_dynamics.B @ nu[:,k]]
             constraints += [self.xmin <= self.C_x@(eta_z[:self.n_lift,k] + self.eta_z_d[:self.n_lift]), #TODO: Reinsert
@@ -67,6 +68,7 @@ class BilinearMpcController(Controller):
                             self.C_h@F@G_umax@(eta_z[:self.n_lift,k] + self.zd) + self.C_h@(-self.zd_ddot + F@F@self.zd) >= self.C_h@nu[:,k]]
 
         objective += cvx.quad_form(eta_z[:,self.n_pred], self.Q_n)
+        objective += cvx.quad_form(self.C_h @ (nu[:,0] - self.nu_prev), 5e-1*np.eye(self.k))
         self.mpc_prob = cvx.Problem(cvx.Minimize(objective), constraints)
 
     def eval(self, x, t):
@@ -96,11 +98,7 @@ class BilinearMpcController(Controller):
 
         u = np.linalg.solve(C@F@act, C@(zd_ddot - F@F@zd + nu)) + self.const_offset
         self.u_prev = u
-
-        print(x)
-        print(z)
-        print(nu, u)
-
+        self.nu_prev = nu
 
         return u
 

@@ -11,7 +11,7 @@ class FlBilinearLearner(BilinearEdmd):
         self.C_h = C_h
         self.alpha=alpha
 
-    def fit(self, X, y, cv=False, override_kinematics=False, l1_reg=0.):
+    def fit(self, X, y, cv=False, override_kinematics=False, l1_reg=0., equilibrium_pts=None):
         # Perform bEDMD to learn A:
         super(FlBilinearLearner, self).fit(X, y, cv=False, override_kinematics=override_kinematics)
 
@@ -26,7 +26,7 @@ class FlBilinearLearner(BilinearEdmd):
             l1_reg = self.cv.alpha_
             print('Bilinear tuned value: ', l1_reg)
 
-        coefs = self._em_fit_sdp_constrained_cvxpy(X, y, self.A, 2, l1_reg=l1_reg)
+        coefs = self._em_fit_sdp_constrained_cvxpy(X, y, self.A, l1_reg=l1_reg, equilibrium_pts=equilibrium_pts)
 
         # Store the learned Bs:
         if self.standardizer is not None:
@@ -105,7 +105,7 @@ class FlBilinearLearner(BilinearEdmd):
 
         return self.cv_values[np.argmin(test_loss_mean)]
 
-    def _em_fit_sdp_constrained_cvxpy(self, X, y, A_init, n_iter, l1_reg=1e-2):
+    def _em_fit_sdp_constrained_cvxpy(self, X, y, A_init, n_iter=10, l1_reg=1e-2, equilibrium_pts=None):
         print('Solving SDP...')
         l = int(self.n/2) + int(self.first_obs_const)
         X_const_processed = [np.concatenate((np.concatenate((x,np.zeros_like(x)),axis=0).reshape(-1,1),
@@ -116,17 +116,20 @@ class FlBilinearLearner(BilinearEdmd):
         A_A = cp.Variable((A_init[l:, :].shape))
         B_A = cp.Parameter((self.m * self.n_lift, y.shape[1] - l))
 
-        # Equilibrium point constraint:
-        z_0 = self.basis(np.zeros((1,4))).T
-
+        # Objective:
         cost_A = cp.norm(y[:, l:] - (X[:, :self.n_lift] @ A_A.T + X[:, self.n_lift:] @ B_A), 'fro')
         cost_A += l1_reg * cp.norm(A_A, p=1)
+
+        # Positive singular values constraint:
         constraints_A = []
         for x in X_const_processed:
             constraints_A += [(self.C_h @ cp.vstack([self.A[:l,:], A_A]))[:,l:] @ B_A.T @ x + ((self.C_h @ cp.vstack([self.A[:l,:], A_A]))[:,l:] @ B_A.T @ x).T
                               - 2 * self.alpha * np.eye(self.m) >> 0]
 
-        constraints_A += [A_A@z_0 == np.zeros((z_0.shape[0]-l,1))]
+        # Equilibrium point constraint:
+        for x in equilibrium_pts:
+            constraints_A += [cp.vstack([self.A[:l,:], A_A])@x == np.zeros_like(x)]
+
         prob_A = cp.Problem(cp.Minimize(cost_A), constraints_A)
 
         # Define cvx problem to learn B-matrix:
@@ -136,6 +139,7 @@ class FlBilinearLearner(BilinearEdmd):
 
         cost_B = cp.norm(y[:,l:] - (X[:,:self.n_lift]@A_B.T + X[:,self.n_lift:]@B_B),'fro')
         cost_B += l1_reg*cp.norm(B_B, p=1)
+        #cost_B += l1_reg * cp.norm(cp.hstack([A_B, B_B.T]), p=1)
         constraints_B = []
         for x in X_const_processed:
             constraints_B += [(self.C_h @ cp.vstack([self.A[:l,:], A_B]))[:,l:]@B_B.T@x + ((self.C_h @ cp.vstack([self.A[:l,:], A_B]))[:,l:]@B_B.T@x).T
@@ -151,7 +155,6 @@ class FlBilinearLearner(BilinearEdmd):
         print("The norm of the residual is ", norm_train[-1])
         print("Total elapsed time: ", time.time()-start_time, '\n')
 
-        n_iter=20
         for ii in range(n_iter):
             start_time = time.time()
             B_A.value = B_B.value
@@ -166,7 +169,7 @@ class FlBilinearLearner(BilinearEdmd):
 
             improvement = 1 - norm_train[-1]/norm_train[-2]
             print('Iteration improvement: ', improvement, ', total improvement: ', 1 - norm_train[-1]/norm_train[0])
-            if improvement < 2e-3:
+            if improvement < 1e-3:
                 break
 
         return np.concatenate((A_B.value, B_B.value.T), axis=1)

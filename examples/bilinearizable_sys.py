@@ -120,7 +120,7 @@ alpha_bedmd = 4e-2
 tune_mdl_bedmd = False
 
 #Feedback linearizable bilinear EDMD parameters:
-alpha_fl_bedmd = 6e-2
+alpha_fl_bedmd = 4e-2
 #alpha_fl_bedmd = 1e-3
 tune_mdl_fl_bedmd = False
 
