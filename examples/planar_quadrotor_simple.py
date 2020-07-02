@@ -17,14 +17,13 @@ from koopman_core.systems import PlanarQuadrotorForceInput
 import dill as pickle
 
 class QuadrotorTrajectoryOutput(ConfigurationDynamics):
-    def __init__(self, dynamics, x_d, t_d, n, m, C_h):
+    def __init__(self, dynamics, x_d, t_d, n, m):
         ConfigurationDynamics.__init__(self, dynamics, 1)
         self.x_d = x_d
         self.t_d = t_d
         self.x_d_dot = differentiate_vec(self.x_d, self.t_d)
         self.n = n
         self.m = m
-        self.C_h = C_h
 
     def y(self, q):
         return q
@@ -107,20 +106,21 @@ R = sc.sparse.eye(m)                                    # MPC control penalty ma
 umax = np.array([np.inf, np.inf])                                   # MPC actuation constraint (trajectory generation)
 umin = np.array([-mass*gravity/2., -mass*gravity/2])
 sub_sample_rate = 5
-model_fname = 'planar_quad_models_sim'
+model_fname = 'examples/planar_quad_models_sim'
 
 #EDMD parameters:
-alpha_edmd = 2e-1
+alpha_edmd = 5e-1
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd = 7e-2
+alpha_bedmd = 1e-1
 tune_mdl_bedmd = False
 
 learn_models = False
 
 # Prediction performance evaluation parameters:
-n_traj_test = 10
+folder_plots = 'examples/figures/'
+n_traj_test = 50
 mpc_controller = MPCController(nominal_sys,n_pred,dt,umin,umax,xmin,xmax,Q,R,QN,set_pt)
 x_0_max = np.array([xmax[0], xmax[1], xmax[2], 1., 1., 1.])
 x_d = np.empty((n_traj,n_pred+1,n))
@@ -215,38 +215,37 @@ else:
     basis_bedmd = lambda x: poly_sine_features.transform(x)
 
 #Compare open loop performance:
-t_eval_test = t_eval
-'''
-xs_test = np.empty((n_traj_test, t_eval_test.shape[0], n))
-xs_nom_test = np.empty((n_traj_test, t_eval_test.shape[0]-1, n))
-xs_edmd_test = np.empty((n_traj_test, t_eval_test.shape[0]-1, n))
-xs_bedmd_test = np.empty((n_traj_test, t_eval_test.shape[0]-1, n))
-us_test = np.empty((n_traj_test, t_eval_test.shape[0]-1, m))
+xs_test = np.empty((n_traj_test, t_eval.shape[0], n))
+xs_nom_test = np.empty((n_traj_test, t_eval.shape[0]-1, n))
+xs_edmd_test = np.empty((n_traj_test, t_eval.shape[0]-1, n))
+xs_bedmd_test = np.empty((n_traj_test, t_eval.shape[0]-1, n))
+us_test = np.empty((n_traj_test, t_eval.shape[0]-1, m))
 
 for ii in range(n_traj_test):
     x_0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x_0_max, x_0_max)])
     mpc_controller.eval(x_0, 0)
     x_d = mpc_controller.parse_result().T
-    while np.any(np.isnan(x_d)):
+
+    while x_d[0,0] is None:
         x_0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x_0_max, x_0_max)])
         mpc_controller.eval(x_0, 0)
         x_d = mpc_controller.parse_result().T
 
-    output = QuadrotorTrajectoryOutput(quadrotor, x_d, t_eval, n, m, None)
+    output = QuadrotorTrajectoryOutput(quadrotor, x_d, t_eval, n, m)
     pd_controller = PDController(output, K_p, K_d)
     perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=mass * gravity / 2)
 
-    xs_test[ii,:,:], us_test[ii,:,:] = quadrotor.simulate(x_0, perturbed_pd_controller, t_eval_test)
-    ol_controller_nom = OpenLoopController(sys_bedmd, us_test[ii,:,:]-hover_thrust, t_eval_test[:-1])
+    xs_test[ii,:,:], us_test[ii,:,:] = quadrotor.simulate(x_0, perturbed_pd_controller, t_eval)
+    ol_controller_nom = OpenLoopController(sys_bedmd, us_test[ii,:,:]-hover_thrust, t_eval[:-1])
 
-    xs_nom_test[ii,:,:], _ = nominal_sys.simulate(x_0, ol_controller_nom, t_eval_test[:-1])
+    xs_nom_test[ii,:,:], _ = nominal_sys.simulate(x_0, ol_controller_nom, t_eval[:-1])
 
     z_0_edmd = basis.basis(np.atleast_2d(x_0)).squeeze()
-    zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller_nom, t_eval_test[:-1])
+    zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller_nom, t_eval[:-1])
     xs_edmd_test[ii,:,:] = np.dot(model_edmd.C, zs_edmd_tmp.T).T
 
     z_0_bedmd = model_bedmd.basis(np.atleast_2d(x_0)).squeeze()
-    zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval_test[:-1])
+    zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval[:-1])
     xs_bedmd_test[ii,:,:] = np.dot(model_bedmd.C, zs_bedmd_tmp.T).T
 
 error_nom = xs_test[:,:-1,:] - xs_nom_test
@@ -264,55 +263,31 @@ error_bedmd_mean = np.mean(error_bedmd, axis=0).T
 error_bedmd_std = np.std(error_bedmd, axis=0).T
 mse_bedmd = np.mean(np.mean(np.mean(np.square(error_bedmd))))
 
-y_lim_gain = 1.2
-fig, axs = plt.subplots(2, int(n/2), figsize=(10, 6))
-ylabels = ['$e_{y}$', '$e_z$', '$e_{\\theta}$', '$e_{\dot{y}}$','$e_{\dot{z}}$','$e_{\dot{\\theta}}$']
-fig.suptitle('Open loop predicition error of EDMD and bilinear EDMD models', y=1.025, fontsize=18)
-for ax, err_nom_mean, err_nom_std, err_edmd_mean, err_edmd_std, err_bedmd_mean, err_bedmd_std, ylabel in zip(axs.flatten(), error_nom_mean, error_nom_std, error_edmd_mean, error_edmd_std, error_bedmd_mean, error_bedmd_std, ylabels):
-    ax.plot(t_eval_test[:-1], err_nom_mean, linewidth=3, label='mean, nominal')
-    ax.fill_between(t_eval_test[:-1], err_nom_mean-err_nom_std, err_nom_mean+err_nom_std, alpha=0.2)
-    ax.plot(t_eval_test[:-1], err_edmd_mean, linewidth=3, label='mean, EDMD')
-    ax.fill_between(t_eval_test[:-1], err_edmd_mean-err_edmd_std, err_edmd_mean+err_edmd_std, alpha=0.2)
-    ax.plot(t_eval_test[:-1], err_bedmd_mean, linewidth=3, label='mean, bEDMD')
-    ax.fill_between(t_eval_test[:-1], err_bedmd_mean-err_bedmd_std, err_bedmd_mean+err_bedmd_std, alpha=0.2)
-    ax.set_ylabel(ylabel, fontsize=16)
-    ylim = max(max(np.abs(err_bedmd_mean-err_bedmd_std)), max(np.abs(err_bedmd_mean+err_bedmd_std)))
-    ax.set_ylim([-ylim*y_lim_gain, ylim*y_lim_gain])
-    ax.grid()
-    ax.set_xlabel('$t$ (sec)', fontsize=16)
-
-ax.legend()
-#plt.tight_layout()
-plt.show()
-print('MSE nominal: ', mse_nom, '\nMSE EDMD: ', mse_edmd, '\nMSE bilinear EDMD: ', mse_bedmd)
-print('Improvement: ', (1-mse_bedmd/mse_edmd)*100, ' percent')
-'''
 #Compare closed loop performance:
 # MPC parameters:
-x_0 = np.array([0., 1., 0., 0., 0., 0.])
-t_eval = dt * np.arange(500)
-umax = np.array([10.5, 10.5]) - hover_thrust
+x_0 = np.array([-1.75, 0., 0., 0., 0., 0.])
+t_eval_cl = dt * np.arange(201)
+umax = np.array([15, 15]) - hover_thrust
 umin = np.array([0., 0.]) - hover_thrust
 q, r = 1e3, 1
 Q = q*np.identity(n)
 R = r*np.identity(m)
 n_pred = 100
-set_pt = np.zeros(n)
-x_d = np.tile(set_pt.reshape(-1,1), (1,t_eval.shape[0]))
+
+set_pt = np.array([1.75, 1., 0., 0., 0., 0.])
+mpc_controller_trajgen = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,np.zeros((n,n)),R,QN,set_pt)
+mpc_controller_trajgen.eval(x_0, 0)
+xr = mpc_controller_trajgen.parse_result()[:,:-1]
 
 # Design MPC for linearized nominal model:
-lin_sys = sc.signal.StateSpace(A_nom, B_nom, np.eye(n), np.zeros((n,m)))
-lin_sys_d = lin_sys.to_discrete(dt, method='zoh')
-A_d, B_d = lin_sys_d.A, lin_sys_d.B
-
-controller_nom = MPCController(nominal_sys,n_pred,dt,umin,umax,xmin,xmax,Q,R,Q,set_pt)
+controller_nom = MPCController(nominal_sys,n_pred,dt,umin,umax,xmin,xmax,Q,R,Q,xr)
 controller_nom = PerturbedController(quadrotor,controller_nom,0.,const_offset=hover_thrust)
-#controller_nom.construct_controller()
 
 # Design MPC for lifted linear EDMD model:
-controller_edmd = MPCControllerDense(sys_edmd, n_pred, dt, umin, umax, xmin, xmax, Q, R, Q, x_d, lifting=True,
-                                     edmd_object=model_edmd, plotMPC=False, name='EDMD')
-#TODO: Subtract fixed offset in MPC problem!
+controller_edmd = MPCController(sys_edmd, n_pred, dt, umin, umax, xmin, xmax, Q, R, Q, xr, lifting=True,
+                                     edmd_object=model_edmd, plotMPC=False)
+controller_edmd = PerturbedController(quadrotor, controller_edmd,0.,const_offset=hover_thrust)
+
 # Design MPC for lifted bilinear EDMD model:
 k = m
 n_lift_bedmd = model_bedmd.n_lift
@@ -329,75 +304,183 @@ fb_sys_d = fb_sys.to_discrete(dt)
 
 controller_bedmd = BilinearMpcController(n, m, k, n_lift_bedmd, n_pred, fb_sys_d, sys_bedmd, model_bedmd.C, C_h, xmin,
                                          xmax, umin, umax,
-                                         Q_fl, Q_fl, R_fl, set_pt.reshape((1, -1)), const_offset=hover_thrust)
-controller_bedmd.construct_controller()
+                                         Q_fl, Q_fl, R_fl, xr, t_eval_cl, const_offset=hover_thrust)
 
-from scipy.linalg import solve_continuous_are
-from koopman_core.controllers import BilinearFBLinController
-output_fl = QuadrotorTrajectoryOutput(sys_bedmd, x_d.T, t_eval, n, m, C_h)
-P = solve_continuous_are(F_lin, G_lin, Q_fl, R_fl)
-K = -np.linalg.inv(R_fl)@G_lin.T@P
-#controller_bedmd = BilinearFBLinController(sys_bedmd, output_fl, K)
-#controller_bedmd = PerturbedController(quadrotor, controller_bedmd, 0., const_offset=hover_thrust)
+xs_mpc_nom, us_mpc_nom = quadrotor.simulate(x_0, controller_nom, t_eval_cl)
+xs_mpc_edmd, us_mpc_edmd = quadrotor.simulate(x_0, controller_edmd, t_eval_cl)
+xs_mpc_bedmd, us_mpc_bedmd = quadrotor.simulate(x_0, controller_bedmd, t_eval_cl)
 
-xs_mpc_nom, us_mpc_nom = quadrotor.simulate(x_0, controller_nom, t_eval)
-#xs_mpc_edmd, us_mpc_edmd = quadrotor.simulate(x_0, controller_edmd, t_eval)
-xs_mpc_bedmd, us_mpc_bedmd = quadrotor.simulate(x_0.reshape((1,-1)), controller_bedmd, t_eval)
+outputs = np.array([1,2])
+Q_cost = q*np.eye(outputs.size)
 
-cost_nom = np.cumsum(np.diag(xs_mpc_nom[1:,:] @ Q @ xs_mpc_nom[1:,:].T) + np.diag((us_mpc_nom) @ R @ (us_mpc_nom).T))
-#cost_edmd = np.cumsum(np.diag(xs_mpc_edmd[1:,:] @ Q @ xs_mpc_edmd[1:,:].T) + np.diag(us_mpc_edmd @ R @ us_mpc_edmd.T))
-cost_bedmd = np.cumsum(np.diag(xs_mpc_bedmd[1:,:] @ Q @ xs_mpc_bedmd[1:,:].T) + np.diag((us_mpc_bedmd) @ R @ (us_mpc_bedmd).T))
+cost_nom = np.cumsum(np.diag((xs_mpc_nom[1:,outputs]-xr[outputs,1:].T) @ Q_cost @ (xs_mpc_nom[1:,outputs]-xr[outputs,1:].T).T) + np.diag((us_mpc_nom) @ R @ (us_mpc_nom).T))
+cost_edmd = np.cumsum(np.diag((xs_mpc_edmd[1:,outputs]-xr[outputs,1:].T) @ Q_cost @ (xs_mpc_edmd[1:,outputs]-xr[outputs,1:].T).T) + np.diag((us_mpc_edmd) @ R @ (us_mpc_edmd).T))
+cost_bedmd = np.cumsum(np.diag((xs_mpc_bedmd[1:,outputs]-xr[outputs,1:].T) @ Q_cost @ (xs_mpc_bedmd[1:,outputs]-xr[outputs,1:].T).T) + np.diag((us_mpc_bedmd) @ R @ (us_mpc_bedmd).T))
 
-_, axs = plt.subplots(2, int(n/2), figsize=(12, 8))
-ylabels = ['$y$', '$z$', '$\\theta$']
-legend_labels=['Nominal (linearized)', 'EDMD', 'bEDMD']
 
-#for ax, data_nom, data_edmd, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_nom.T, xs_mpc_edmd.T, xs_mpc_bedmd.T, ylabels):
-for ax, data_nom, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_nom.T, xs_mpc_bedmd.T, ylabels):
-#for ax, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_bedmd.T, ylabels):
-    ax.plot(t_eval, data_nom, linewidth=3, label=legend_labels[0])
-    #ax.plot(t_eval, data_edmd, linewidth=3, label=legend_labels[1])
-    ax.plot(t_eval, data_bedmd, linewidth=3, label=legend_labels[2])
-    ax.set_ylabel(ylabel, fontsize=16)
+def plot_paper(folder_name, show_plots=False):
+    import matplotlib
+    figwidth = 12
+    lw = 2
+    y_lim_gain = 1.2
+
+    #Plot open loop results:
+
+    ylabels = ['$e_{y}$', '$e_z$', '$e_{\\theta}$']
+    plt.figure(figsize=(figwidth,3))
+    for ii in range(3):
+        plt.subplot(1,3,ii+1)
+        plt.plot(t_eval[:-1], error_nom_mean[ii,:], linewidth=lw, label='Nominal (linearized)')
+        plt.fill_between(t_eval[:-1], error_nom_mean[ii,:] - error_nom_std[ii,:], error_nom_mean[ii,:] + error_nom_std[ii,:], alpha=0.2)
+        plt.plot(t_eval[:-1], error_edmd_mean[ii, :], linewidth=lw, label='EDMD')
+        plt.fill_between(t_eval[:-1], error_edmd_mean[ii, :] - error_edmd_std[ii, :],error_edmd_mean[ii, :] + error_edmd_std[ii, :], alpha=0.2)
+        plt.plot(t_eval[:-1], error_bedmd_mean[ii, :], linewidth=lw, label='bEDMD')
+        plt.fill_between(t_eval[:-1], error_bedmd_mean[ii, :] - error_bedmd_std[ii, :],error_bedmd_mean[ii, :] + error_bedmd_std[ii, :], alpha=0.2)
+        ylim = max(max(np.abs(error_bedmd_mean[ii, :] - error_bedmd_std[ii, :])), max(np.abs(error_bedmd_mean[ii, :] + error_bedmd_std[ii, :])))
+        plt.ylim([-ylim * y_lim_gain, ylim * y_lim_gain])
+        plt.xlabel('$t$ (sec)', fontsize=16)
+        plt.ylabel(ylabels[ii], fontsize=16)
+        plt.grid()
+
+    plt.legend(loc='upper left')
+    suptitle = plt.suptitle('Open loop prediction error of linearized, EDMD and bilinear EDMD models', y=1.05, fontsize=18)
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+    plt.tight_layout()
+    plt.savefig(folder_name + 'planar_quad_prediction.pdf', format='pdf', dpi=2400, bbox_extra_artists=(suptitle,), bbox_inches="tight")
+
+    if show_plots:
+        plt.show()
+        print('MSE nominal: ', mse_nom, '\nMSE EDMD: ', mse_edmd, '\nMSE bilinear EDMD: ', mse_bedmd)
+        print('Improvement: ', (1 - mse_bedmd / mse_edmd) * 100, ' percent')
+
+    #Plot closed loop results:
+    x_index = 1
+    y_index = 2
+    plt.figure(figsize=(figwidth, 4))
+    plt.subplot(1, 3, 1)
+    plt.plot(xr[x_index,:], xr[y_index,:], '--r', linewidth=2, label='Reference')
+    plt.plot(xs_mpc_nom[:, x_index], xs_mpc_nom[:, y_index], linewidth=lw, label='Nominal (linearized)')
+    plt.plot(xs_mpc_edmd[:, x_index], xs_mpc_edmd[:, y_index], linewidth=lw, label='EDMD')
+    plt.plot(xs_mpc_bedmd[:, x_index], xs_mpc_bedmd[:, y_index], linewidth=lw, label='bEDMD')
+    plt.xlabel('$z$')
+    plt.ylabel('$\\theta$')
+    plt.title('Phase plot')
+    plt.grid()
+
+    plt.subplot(2, 3, 2)
+    plt.plot(t_eval_cl[:-1], us_mpc_nom[:, 0], linewidth=lw, label='Nominal (linearized)')
+    plt.plot(t_eval_cl[:-1], us_mpc_edmd[:, 0], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl[:-1], us_mpc_bedmd[:, 0], linewidth=lw, label='bEDMD')
+    plt.plot([t_eval_cl[0], t_eval_cl[-1]], [umax[0]+hover_thrust, umax[0]+hover_thrust], ':k', linewidth=lw)
+    plt.plot([t_eval_cl[0], t_eval_cl[-1]], [umin[1] + hover_thrust, umin[1] + hover_thrust], ':k', linewidth=lw)
+    plt.ylabel('$u_1$')
+    plt.title('Control action')
+    plt.grid()
+
+    plt.subplot(2, 3, 5)
+    plt.plot(t_eval_cl[:-1], us_mpc_nom[:, 1], linewidth=lw, label='Nominal (linearized)')
+    plt.plot(t_eval_cl[:-1], us_mpc_edmd[:, 1], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl[:-1], us_mpc_bedmd[:, 1], linewidth=lw, label='bEDMD')
+    plt.plot([t_eval_cl[0], t_eval_cl[-1]], [umax[1]+hover_thrust, umax[1]+hover_thrust], ':k', linewidth=lw)
+    plt.plot([t_eval_cl[0], t_eval_cl[-1]], [umin[1] + hover_thrust, umin[1] + hover_thrust], ':k', linewidth=lw)
+    plt.xlabel('Time (sec)')
+    plt.ylabel('$u_2$')
+    plt.grid()
+
+    plt.subplot(1, 3, 3)
+    plt.plot(t_eval_cl[:-1], cost_nom / cost_nom[-1], linewidth=lw, label='Nominal (linearized)')
+    plt.plot(t_eval_cl[:-1], cost_edmd / cost_nom[-1], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl[:-1], cost_bedmd / cost_nom[-1], linewidth=lw, label='bEDMD')
+    plt.xlabel('Time (sec)')
+    plt.ylabel('J (normalized)')
+    plt.title('Normalized cost')
+    plt.grid()
+    plt.legend(loc='upper left')
+
+    suptitle = plt.suptitle('Trajectory tracking with MPC based on linearized, EDMD and bilinear EDMD models', y=1.05,fontsize=18)
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+    plt.tight_layout()
+    plt.savefig(folder_name + 'planar_quad_closedloop.pdf', format='pdf', dpi=2400, bbox_extra_artists=(suptitle,),
+                bbox_inches="tight")
+    if show_plots:
+        plt.show()
+
+def plot_debug(show_plots=False):
+
+    #Show open loop results:
+    y_lim_gain = 1.2
+    fig, axs = plt.subplots(2, int(n / 2), figsize=(10, 6))
+    ylabels = ['$e_{y}$', '$e_z$', '$e_{\\theta}$', '$e_{\dot{y}}$', '$e_{\dot{z}}$', '$e_{\dot{\\theta}}$']
+    fig.suptitle('Open loop predicition error of EDMD and bilinear EDMD models', y=1.025, fontsize=18)
+    for ax, err_nom_mean, err_nom_std, err_edmd_mean, err_edmd_std, err_bedmd_mean, err_bedmd_std, ylabel in zip(
+            axs.flatten(), error_nom_mean, error_nom_std, error_edmd_mean, error_edmd_std, error_bedmd_mean,
+            error_bedmd_std, ylabels):
+        ax.plot(t_eval[:-1], err_nom_mean, linewidth=3, label='mean, nominal')
+        ax.fill_between(t_eval[:-1], err_nom_mean - err_nom_std, err_nom_mean + err_nom_std, alpha=0.2)
+        ax.plot(t_eval[:-1], err_edmd_mean, linewidth=3, label='mean, EDMD')
+        ax.fill_between(t_eval[:-1], err_edmd_mean - err_edmd_std, err_edmd_mean + err_edmd_std, alpha=0.2)
+        ax.plot(t_eval[:-1], err_bedmd_mean, linewidth=3, label='mean, bEDMD')
+        ax.fill_between(t_eval[:-1], err_bedmd_mean - err_bedmd_std, err_bedmd_mean + err_bedmd_std, alpha=0.2)
+        ax.set_ylabel(ylabel, fontsize=16)
+        ylim = max(max(np.abs(err_bedmd_mean - err_bedmd_std)), max(np.abs(err_bedmd_mean + err_bedmd_std)))
+        ax.set_ylim([-ylim * y_lim_gain, ylim * y_lim_gain])
+        ax.grid()
+        ax.set_xlabel('$t$ (sec)', fontsize=16)
+
+    ax.legend()
+    # plt.tight_layout()
+    if show_plots:
+        plt.show()
+        print('MSE nominal: ', mse_nom, '\nMSE EDMD: ', mse_edmd, '\nMSE bilinear EDMD: ', mse_bedmd)
+        print('Improvement: ', (1 - mse_bedmd / mse_edmd) * 100, ' percent')
+
+    #Plot closed loop results:
+    _, axs = plt.subplots(2, int(n / 2), figsize=(12, 8))
+    ylabels = ['$y$', '$z$', '$\\theta$']
+    legend_labels = ['Nominal (linearized)', 'EDMD', 'bEDMD']
+
+    for ax, data_nom, data_edmd, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_nom.T, xs_mpc_edmd.T,
+                                                           xs_mpc_bedmd.T, ylabels):
+        # for ax, data_nom, data_bedmd, ylabel in zip(axs[:-1].flatten(), xs_mpc_nom.T, xs_mpc_bedmd.T, ylabels):
+        ax.plot(t_eval_cl, data_nom, linewidth=3, label=legend_labels[0])
+        ax.plot(t_eval_cl, data_edmd, linewidth=3, label=legend_labels[1])
+        ax.plot(t_eval_cl, data_bedmd, linewidth=3, label=legend_labels[2])
+        ax.set_ylabel(ylabel, fontsize=16)
+        ax.grid()
+        ax.set_xlabel('$t$ (sec)', fontsize=16)
+        ax.legend()
+
+    axs[0, 0].plot(t_eval_cl, xr[0, :], '--r', linewidth=2)
+    axs[0, 1].plot(t_eval_cl, xr[1, :], '--r', linewidth=2)
+    axs[0, 2].plot(t_eval_cl, xr[2, :], '--r', linewidth=2)
+
+    ax = axs[1, 0]
+    ax.plot(t_eval_cl[:-1], us_mpc_nom[:, 0], linewidth=3, label='$u$, ' + legend_labels[0])
+    ax.plot(t_eval_cl[:-1], us_mpc_nom[:, 1], linewidth=3, label='$u$, ' + legend_labels[0])
+    ax.plot(t_eval_cl[:-1], us_mpc_edmd[:, 0], linewidth=3, label='$u$, ' + legend_labels[1])
+    ax.plot(t_eval_cl[:-1], us_mpc_edmd[:, 1], linewidth=3, label='$u$, ' + legend_labels[1])
+    ax.plot(t_eval_cl[:-1], us_mpc_bedmd[:, 0], linewidth=3, label='$u_1$, ' + legend_labels[2])
+    ax.plot(t_eval_cl[:-1], us_mpc_bedmd[:, 1], linewidth=3, label='$u_2$, ' + legend_labels[2])
     ax.grid()
     ax.set_xlabel('$t$ (sec)', fontsize=16)
+    ax.set_ylabel('$u$', fontsize=16)
     ax.legend()
 
-ax = axs[1,0]
-ax.plot(t_eval[:-1], us_mpc_nom[:,0], linewidth=3, label='$u$, '+ legend_labels[0])
-ax.plot(t_eval[:-1], us_mpc_nom[:,1], linewidth=3, label='$u$, '+ legend_labels[0])
-#ax.plot(t_eval[:-1], us_mpc_edmd[:,0], linewidth=3, label='$u$, '+ legend_labels[1])
-#ax.plot(t_eval[:-1], us_mpc_edmd[:,1], linewidth=3, label='$u$, '+ legend_labels[1])
-ax.plot(t_eval[:-1], us_mpc_bedmd[:,0], linewidth=3, label='$u_1$, '+ legend_labels[2])
-ax.plot(t_eval[:-1], us_mpc_bedmd[:,1], linewidth=3, label='$u_2$, '+ legend_labels[2])
-ax.grid()
-ax.set_xlabel('$t$ (sec)', fontsize=16)
-ax.set_ylabel('$u$', fontsize=16)
-ax.legend()
+    ax = axs[1, 1]
+    ax.plot(t_eval_cl[:-1], cost_nom / cost_nom[-1], linewidth=3, label=legend_labels[0])
+    ax.plot(t_eval_cl[:-1], cost_edmd / cost_nom[-1], linewidth=3, label=legend_labels[1])
+    ax.plot(t_eval_cl[:-1], cost_bedmd / cost_nom[-1], linewidth=3, label=legend_labels[2])
+    ax.grid()
+    ax.set_xlabel('$t$ (sec)', fontsize=16)
+    ax.set_ylabel('Normalized cost, $J$', fontsize=16)
+    ax.legend(loc='lower right')
 
-ax = axs[1,1]
-ax.plot(t_eval[:-1], cost_nom/cost_nom[-1], linewidth=3, label=legend_labels[0])
-#ax.plot(t_eval[:-1], cost_edmd/cost_nom[-1], linewidth=3, label=legend_labels[1])
-ax.plot(t_eval[:-1], cost_bedmd/cost_nom[-1], linewidth=3, label=legend_labels[2])
-ax.grid()
-ax.set_xlabel('$t$ (sec)', fontsize=16)
-ax.set_ylabel('Normalized cost, $J$', fontsize=16)
-ax.legend(loc='lower right')
+    plt.tight_layout()
+    if show_plots:
+        plt.show()
 
-plt.tight_layout()
-plt.show()
-
-#plt.figure(figsize=(6,4))
-#plt.subplot(3,1,1)
-#plt.hist(controller_nom.comp_time)
-#plt.xlim(1e-4, 1e-1)
-#plt.subplot(3,1,2)
-#plt.hist(controller_edmd.comp_time)
-#plt.xlim(1e-4, 1e-1)
-#plt.subplot(3,1,3)
-#plt.hist(controller_bedmd.comp_time)
-#plt.xlim(1e-4, 1e-1)
-#plt.tight_layout()
-#plt.show()
-
+#plot_debug(show_plots=False)
+plot_paper(folder_plots, show_plots=True)
 

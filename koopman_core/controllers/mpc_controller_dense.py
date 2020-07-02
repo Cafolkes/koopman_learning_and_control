@@ -333,7 +333,7 @@ class MPCControllerDense(Controller):
 
         # Construct the new _osqp_q objects
         if (self.lifting):
-            x = self.edmd_object.lift(x.reshape((1,x.shape[0])), np.zeros((1,self.nu))).squeeze()
+            x = self.edmd_object.lift(x.reshape((1,-1)), np.zeros((1,self.nu))).squeeze()
             BQxr  = self.B.T @ np.reshape(self.CtQ.dot(xr),(N*nx,),order='F')
             l = np.hstack([self.x_min_flat - self.Cbd @ self.a @ x, self.u_min_flat])
             u = np.hstack([self.x_max_flat - self.Cbd @ self.a @ x, self.u_max_flat])

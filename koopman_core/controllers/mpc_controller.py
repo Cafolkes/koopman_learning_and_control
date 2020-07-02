@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse as sparse
+from scipy.signal import cont2discrete
 import osqp
 import matplotlib.pyplot as plt
 from core.controllers.controller import Controller
@@ -42,8 +43,11 @@ class MPCController(Controller):
         Ac, Bc = linear_dynamics.linear_system()
         [nx, nu] = Bc.shape
         self.dt = dt
-        self._osqp_Ad = sparse.eye(nx)+Ac*self.dt
-        self._osqp_Bd = Bc*self.dt
+        #self._osqp_Ad = sparse.eye(nx)+Ac*self.dt
+        #self._osqp_Bd = Bc*self.dt
+        lin_model_d = cont2discrete((Ac,Bc,np.eye(nx),np.zeros((nu,1))),dt)
+        self._osqp_Ad = sparse.csc_matrix(lin_model_d[0]) #TODO: If bad behavior, delete this
+        self._osqp_Bd = sparse.csc_matrix(lin_model_d[1]) #TODO: If bad behavior, delete this
         self.plotMPC = plotMPC
         self.plotMPC_filename = plotMPC_filename
         self.q_d = xr
@@ -55,6 +59,8 @@ class MPCController(Controller):
 
         self.nu = nu
         self.nx = nx
+
+        self.comp_time = []
 
         # Total desired path
         if self.q_d.ndim==2:
@@ -176,7 +182,7 @@ class MPCController(Controller):
 
         # Lift the current state if necessary
         if (self.lifting): 
-            x = np.transpose(self.edmd_object.lift(x.reshape((x.shape[0],1)),xr[:,0].reshape((xr.shape[0],1))))[:,0]
+            x = self.edmd_object.lift(x.reshape((1,-1)), None).squeeze()
         
         self._osqp_l[:self.nx] = -x
         self._osqp_u[:self.nx] = -x
@@ -185,6 +191,7 @@ class MPCController(Controller):
 
         ## Solve MPC Instance
         self._osqp_result = self.prob.solve()
+        self.comp_time.append(self._osqp_result.info.run_time)
 
         # Check solver status
         #if self._osqp_result.info.status != 'solved':
@@ -192,7 +199,7 @@ class MPCController(Controller):
 
         if self.plotMPC:
             self.plot_MPC(t, xr, tindex)
-        return  self._osqp_result.x[-N*nu:-(N-1)*nu]
+        return self._osqp_result.x[-N*nu:-(N-1)*nu]
 
     def parse_result(self):
         return  np.transpose(np.reshape( self._osqp_result.x[:(self.N+1)*self.nx], (self.N+1,self.nx)))
