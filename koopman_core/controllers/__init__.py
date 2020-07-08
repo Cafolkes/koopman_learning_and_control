@@ -1,3 +1,4 @@
+from .linear_lifted_controller import LinearLiftedController
 from .linear_mpc_controller import LinearMpcController
 from .mpc_controller import MPCController
 from .mpc_controller_dense import MPCControllerDense

@@ -21,7 +21,7 @@ class Edmd():
         self.cv = cv
         self.standardizer = standardizer
 
-    def fit(self, X, y, cv=False, override_kinematics=False, first_obs_const=True):
+    def fit(self, X, y, cv=False, override_kinematics=False):
         if override_kinematics:
             y = y[:,int(self.n/2)+int(self.first_obs_const):]
 
@@ -83,6 +83,22 @@ class Edmd():
             numpy array [Ns,Nt] -- Az+Bu in z_dot = Az+Bu
         """
         return np.dot(self.C, np.dot(self.A, x) + np.dot(self.B, u))
+
+    def reduce_mdl(self):
+        # Identify what basis functions are in use:
+        in_use = np.unique(np.nonzero(self.C)[1]) # Identify observables used for state prediction
+        n_obs_used = 0
+        while n_obs_used < in_use.size:
+            n_obs_used = in_use.size
+            in_use = np.unique(np.nonzero(self.A[in_use,:])[1])
+
+        self.A = self.A[in_use,:]
+        self.A = self.A[:, in_use]
+        self.B = self.B[in_use, :]
+        self.C = self.C[:, in_use]
+        self.basis_reduced = lambda x: self.basis(x)[:,in_use]
+        self.n_lift_reduced = in_use.size
+        self.obs_in_use = in_use
 
     def score(self, x, u):
         pass
