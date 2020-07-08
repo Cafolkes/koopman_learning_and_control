@@ -6,7 +6,7 @@ class BasisFunctions():
     Override construct_basis
     """
 
-    def __init__(self, n, Nlift):
+    def __init__(self, n, n_lift):
         """
         Parameters
         ----------
@@ -16,7 +16,7 @@ class BasisFunctions():
             Number of lifing functions
         """
         self.n = n
-        self.Nlift = Nlift
+        self.n_lift = n_lift
         self.basis = None
 
     def lift(self, q):
@@ -35,5 +35,5 @@ class BasisFunctions():
 
         return self.basis(q)
 
-    def construct_basis(self, poly_deg=2):
+    def construct_basis(self):
         pass

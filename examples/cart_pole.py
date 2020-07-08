@@ -1,22 +1,15 @@
 import numpy as np
-from core.dynamics import RoboticDynamics
-from koopman_core.controllers import MPCController, PerturbedController
-from core.controllers import PDController
-from core.dynamics import LinearSystemDynamics
 import scipy as sc
 import random as rand
-import matplotlib.pyplot as plt
-from koopman_core.dynamics import LinearLiftedDynamics
-from koopman_core.learning import Edmd
-from koopman_core.basis_functions import CartPoleBasis
 from sklearn import preprocessing, linear_model
-from koopman_core.dynamics import BilinearLiftedDynamics
-from koopman_core.learning.bilinear_edmd import BilinearEdmd
-from matplotlib import pyplot as plt
-from koopman_core.controllers.openloop_controller import OpenLoopController
-from koopman_core.controllers import LinearMpcController, MPCControllerDense, BilinearMpcController
-from core.dynamics import ConfigurationDynamics
-from koopman_core.learning.utils import differentiate_vec
+import matplotlib.pyplot as plt
+from core.controllers import PDController
+from core.dynamics import LinearSystemDynamics, ConfigurationDynamics
+from koopman_core.controllers import OpenLoopController, MPCController, LinearMpcController, MPCControllerDense, \
+    BilinearMpcController, PerturbedController
+from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
+from koopman_core.learning import Edmd, BilinearEdmd
+from koopman_core.basis_functions import CartPoleBasis
 
 
 class CartPole(RoboticDynamics):

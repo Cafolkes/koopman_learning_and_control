@@ -5,7 +5,7 @@ from core.controllers.controller import Controller
 
 class LinearMpcController(Controller):
 
-    def __init__(self, n, m, n_lift, n_pred, linear_dynamics, xmin, xmax, umin, umax, Q, Q_n, R, set_pt):
+    def __init__(self, n, m, n_lift, n_pred, linear_dynamics, xmin, xmax, umin, umax, Q, Q_n, R, set_pt, const_offset=0.):
 
         super(LinearMpcController, self).__init__(linear_dynamics)
         self.n = n
@@ -21,6 +21,7 @@ class LinearMpcController(Controller):
         self.Q_n = Q_n
         self.R = R
         self.set_pt = set_pt
+        self.const_offset=const_offset
 
         self.mpc_prob = None
         self.x_init = None
@@ -34,8 +35,8 @@ class LinearMpcController(Controller):
         constraints = [x[:,0] == self.x_init]
 
         for k in range(self.n_pred):
-            objective += cvx.quad_form(x[:,k] - self.set_pt, self.Q) + cvx.quad_form(u[:,k], self.R)
-            constraints += [x[:,k+1] == self.linear_dynamics.A * x[:,k] + self.linear_dynamics.B * u[:,k]]
+            objective += cvx.quad_form(x[:,k] - self.set_pt, self.Q) + cvx.quad_form(u[:,k]+self.const_offset, self.R)
+            constraints += [x[:,k+1] == self.linear_dynamics.A @ x[:,k] + self.linear_dynamics.B @ u[:,k]]
             constraints += [self.xmin <= x[:,k], x[:,k] <= self.xmax]
             constraints += [self.umin <= u[:,k], u[:,k] <= self.umax]
 
