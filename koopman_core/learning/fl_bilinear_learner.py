@@ -52,7 +52,7 @@ class FlBilinearLearner(BilinearEdmd):
         y_sdp = y - X[:,:self.n_lift]@self.A.T  # y_sdp = y - Ax
         return X_sdp, y_sdp
 
-    def _em_fit_sdp_constrained_cvxpy(self, X, y, A_init, n_iter=10, l1_reg=1e-2, equilibrium_pts=None):
+    def _em_fit_sdp_constrained_cvxpy(self, X, y, A_init, n_iter=30, l1_reg=1e-2, equilibrium_pts=None):
         l = int(self.n/2) + int(self.first_obs_const)
 
         X_const_processed = [np.concatenate((np.concatenate((x,np.zeros_like(x)),axis=0).reshape(-1,1),

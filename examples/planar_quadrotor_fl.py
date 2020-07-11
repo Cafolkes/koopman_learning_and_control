@@ -145,7 +145,7 @@ traj_length_dc = 2.                                                 # Trajectory
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
 n_traj_dc = 50                                                      # Number of trajectories to execute, data collection
-noise_var = 10.                                                     # Exploration noise to perturb controller, data collection
+noise_var = 1.                                                      # Exploration noise to perturb controller, data collection
 
 xmax = np.array([2, 2, np.pi/3, 2.,2.,2.])                          # State constraints, trajectory generation
 xmin = -xmax
@@ -153,40 +153,41 @@ umax = np.array([50., 50.]) - hover_thrust                          # Actuation 
 umin = np.array([0., 0.]) - hover_thrust
 x0_max = np.array([xmax[0], xmax[1], xmax[2], 1., 1., 1.])          # Initial value limits
 Q_trajgen = sc.sparse.diags([0,0,0,0,0,0])                          # State penalty matrix, trajectory generation
-QN_trajgen = sc.sparse.diags([1e2,1e2,1e2,1e1,1e1,1e1])             # Final state penalty matrix, trajectory generation
+QN_trajgen = sc.sparse.diags([5e1,5e1,5e1,1e1,1e1,1e1])             # Final state penalty matrix, trajectory generation
 R_trajgen = sc.sparse.eye(m)                                        # Actuation penalty matrix, trajectory generation
-set_pt_dc = np.zeros(n)                                             # Desired final state, trajectory generation
-mpc_trajgen = MPCController(nominal_sys,n_pred_dc,dt,umin,umax,xmin,xmax,QN_trajgen,R_trajgen,QN_trajgen,set_pt_dc)
 sub_sample_rate = 5                                                 # Rate to subsample data for training
-model_fname = 'examples/planar_quad_models'                     # Path to save learned models
-plot_training_data = True
+model_fname = 'examples/planar_quad_models'                         # Path to save learned models
+plot_training_data = False
 n_cols = 10                                                         # Number of columns in training data plot
-learn_models = False                                                # Learn models (True), load models (False)
+learn_models = True                                                 # Learn models (True), load models (False)
 
 #DMD parameters:
-alpha_dmd = 9e-2                                                    # Regularization strength (LASSO) DMD
+alpha_dmd = 1.4e-2                                                  # Regularization strength (LASSO) DMD
 tune_mdl_dmd = False
 
 #EDMD parameters:
-alpha_edmd = 4e-1                                                   # Regularization strength (LASSO) EDMD
+alpha_edmd = 1.1e-1                                                 # Regularization strength (LASSO) EDMD
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd_init = 1.1e-1                                           # Regularization strength (LASSO) bEDMD
-alpha_bedmd = 1e-1
-#print('Running experiment with alpha = ', alpha_bedmd)
+alpha_bedmd_init = 1.9e-2                                           # Regularization strength (LASSO) bEDMD
+alpha_bedmd = 1.9e-2
 tune_mdl_bedmd = False
+#print('Running experiment with alpha = ', alpha_bedmd)
 
 # Prediction performance evaluation parameters:
 folder_plots = 'examples/figures/'                                  # Path to save plots
-n_traj_ol = 50                                                      # Number of trajectories to execute, open loop
+n_traj_ol = 100                                                      # Number of trajectories to execute, open loop
 
 #Closed loop performance evaluation parameters:
-x0_cl = np.array([-1.75, 0., 0., 0., 0., 0.])                       # Initial value, closed loop trajectory
-set_pt_cl = np.array([1.75, 1., 0., 0., 0., 0.])                    # Desired final value, closed loop trajectory
+x0_cl = np.array([-1., 0., 0., 0., 0., 0.])                         # Initial value, closed loop trajectory
+set_pt_cl = np.array([1., 1., 0., 0., 0., 0.])                      # Desired final value, closed loop trajectory
 t_eval_cl = dt * np.arange(201)                                     # Simulation time points, closed loop
-mpc_trajgen_cl = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,QN_trajgen,R_trajgen,QN_trajgen,set_pt_cl)
-q_cl, r_cl = 4e1, 1                                                 # State and actuation penalty values, closed loop
+Q_trajgen_cl = sc.sparse.diags([0,0,0,0,0,0])                       # State penalty matrix, trajectory generation
+QN_trajgen_cl = sc.sparse.diags([3e2,3e2,3e2,1e2,1e2,1e2])          # Final state penalty matrix, trajectory generation
+R_trajgen_cl = sc.sparse.eye(m)                                     # Actuation penalty matrix, trajectory generation
+mpc_trajgen_cl = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,QN_trajgen_cl,R_trajgen_cl,QN_trajgen_cl,set_pt_cl)
+q_cl, r_cl = 2e1, 1                                                  # State and actuation penalty values, closed loop
 output_inds = np.array([1, 2])                                      # Output states, feedback linearizing controller
 
 #================================================== COLLECT DATA ==================================================
@@ -197,33 +198,40 @@ if learn_models:
     us = np.empty((n_traj_dc, n_pred_dc, m))
 
     if plot_training_data:
-        plt.figure(figsize=(12,12*n_traj_dc/(n_cols**2)))
+        plt.figure(figsize=(12, 12 * n_traj_dc / (n_cols ** 2)))
     for ii in range(n_traj_dc):
-        x0 = np.asarray([rand.uniform(l,u) for l, u in zip(-x0_max, x0_max)])
+        x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+        set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+        mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
+                                    QN_trajgen, set_pt_dc)
         mpc_trajgen.eval(x0, 0)
         xd[ii, :, :] = mpc_trajgen.parse_result().T
-        while abs(x0[0]) < 1.25 or np.any(np.isnan(xd[ii,:,:])):
-            x0 = np.asarray([rand.uniform(l,u) for l, u in zip(-x0_max, x0_max)])
+        while abs(x0[0]) < 1.25 or np.any(np.isnan(xd[ii, :, :])):
+            x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+            set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+            mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
+                                        QN_trajgen, set_pt_dc)
             mpc_trajgen.eval(x0, 0)
             xd[ii, :, :] = mpc_trajgen.parse_result().T
 
-        output = QuadrotorPdOutput(quadrotor, xd[ii,:,:], t_eval, n, m)
+        output = QuadrotorPdOutput(quadrotor, xd[ii, :, :], t_eval, n, m)
         pd_controller = PDController(output, K_dc_p, K_dc_d)
         perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=hover_thrust)
-        xs[ii,:,:], us[ii,:,:] = quadrotor.simulate(x0, perturbed_pd_controller, t_eval)
+        xs[ii, :, :], us[ii, :, :] = quadrotor.simulate(x0, perturbed_pd_controller, t_eval)
 
         if plot_training_data:
-            plt.subplot(int(np.ceil(n_traj_dc/n_cols)),n_cols,ii+1)
-            plt.plot(t_eval, xs[ii,:,0], 'b', label='$y$')
+            plt.subplot(int(np.ceil(n_traj_dc / n_cols)), n_cols, ii + 1)
+            plt.plot(t_eval, xs[ii, :, 0], 'b', label='$y$')
             plt.plot(t_eval, xs[ii, :, 1], 'g', label='$z$')
-            plt.plot(t_eval, xs[ii,:,2], 'r', label='$\\theta$')
-            plt.plot(t_eval, xd[ii,:,0], '--b', label='$y_d$')
+            plt.plot(t_eval, xs[ii, :, 2], 'r', label='$\\theta$')
+            plt.plot(t_eval, xd[ii, :, 0], '--b', label='$y_d$')
             plt.plot(t_eval, xd[ii, :, 1], '--g', label='$z_d$')
-            plt.plot(t_eval, xd[ii,:,2], '--r', label='$\\theta_d$')
+            plt.plot(t_eval, xd[ii, :, 2], '--r', label='$\\theta_d$')
     if plot_training_data:
-        plt.suptitle('Training data \nx-axis: time (sec), y-axis: state value, $x$ - blue, $xd$ - dotted blue, $\\theta$ - red, $\\theta_d$ - dotted red',y=0.94)
+        plt.suptitle(
+            'Training data \nx-axis: time (sec), y-axis: state value, $x$ - blue, $xd$ - dotted blue, $\\theta$ - red, $\\theta_d$ - dotted red',
+            y=0.94)
         plt.show()
-
     # ================================================== LEARN MODELS ==================================================
 
     #DMD:
@@ -264,8 +272,8 @@ if learn_models:
 
     #Bilinear EDMD:
     n_lift_bedmd = n_lift_edmd
-    C_x_bedmd = np.zeros((n,n_lift_bedmd))
-    C_x_bedmd[:,1:n+1] = np.eye(n)
+    C_x_bedmd = np.zeros((n, n_lift_bedmd))
+    C_x_bedmd[:, 1:n + 1] = np.eye(n)
     C_h_bedmd = C_x_bedmd[output_inds, :]
 
     basis_bedmd = lambda x: poly_sine_features.transform(x)
@@ -274,10 +282,12 @@ if learn_models:
     standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
 
     model_bedmd = FlBilinearLearner(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, C_h_bedmd,
-                                       cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_x_bedmd)
-    X_bedmd, y_bedmd = model_bedmd.process(xs,us-hover_thrust,np.tile(t_eval,(n_traj_dc,1)),downsample_rate=sub_sample_rate)
+                                    cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_x_bedmd)
+    X_bedmd, y_bedmd = model_bedmd.process(xs, us - hover_thrust, np.tile(t_eval, (n_traj_dc, 1)),
+                                           downsample_rate=sub_sample_rate)
     model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True, l1_reg=alpha_bedmd)
-    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis)
+    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C,
+                                       model_bedmd.basis)
     if tune_mdl_bedmd:
         print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
 
@@ -299,9 +309,6 @@ else:
     basis.construct_basis()
     poly_sine_features = preprocessing.FunctionTransformer(basis.basis)
     poly_sine_features.fit(np.zeros((1, n)))
-    basis_dmd = lambda x: x
-    basis_edmd = lambda x: poly_sine_features.transform(x)
-    basis_bedmd = lambda x: poly_sine_features.transform(x)
 
 #=========================================== EVALUATE OPEN LOOP PERFORMANCE ===========================================
 
@@ -314,11 +321,17 @@ us_test = np.empty((n_traj_ol, t_eval.shape[0]-1, m))
 
 for ii in range(n_traj_ol):
     x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+    set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+    mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
+                                QN_trajgen, set_pt_dc)
     mpc_trajgen.eval(x0, 0)
     xd = mpc_trajgen.parse_result().T
 
     while xd[0,0] is None:
         x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+        set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+        mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
+                                    QN_trajgen, set_pt_dc)
         mpc_trajgen.eval(x0, 0)
         xd = mpc_trajgen.parse_result().T
 
@@ -335,7 +348,7 @@ for ii in range(n_traj_ol):
     zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller_nom, t_eval[:-1])
     xs_edmd_ol[ii,:,:] = np.dot(model_edmd.C, zs_edmd_tmp.T).T
 
-    z_0_bedmd = model_bedmd.basis(np.atleast_2d(x0)).squeeze()
+    z_0_bedmd = sys_bedmd.phi_fun(np.atleast_2d(x0)).squeeze()
     zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval[:-1])
     xs_bedmd_ol[ii,:,:] = np.dot(model_bedmd.C, zs_bedmd_tmp.T).T
 
@@ -355,9 +368,9 @@ error_bedmd_std = np.std(error_bedmd, axis=0).T
 mse_bedmd = np.mean(np.mean(np.mean(np.square(error_bedmd))))
 
 print('\nOpen loop performance statistics:')
-print('   MSE DMD:   ', "{:.2f}".format(mse_dmd),
-      '\n   MSE EDMD:  ', "{:.2f}".format(mse_edmd),
-      '\n   MSE bEDMD: ', "{:.2f}".format(mse_bedmd))
+print('   MSE DMD:   ', "{:.3f}".format(mse_dmd),
+      '\n   MSE EDMD:  ', "{:.3f}".format(mse_edmd),
+      '\n   MSE bEDMD: ', "{:.3f}".format(mse_bedmd))
 print('   Improvement DMD -> EDMD:   ', "{:.2f}".format((1 - mse_edmd / mse_dmd) * 100), ' %'
       '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format((1 - mse_bedmd / mse_dmd) * 100), ' %'
       '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format((1 - mse_bedmd / mse_edmd) * 100), ' %')
@@ -401,7 +414,7 @@ controller_edmd = PerturbedController(quadrotor, controller_edmd,0.,const_offset
 
 # Design feedback linearizing controller for bilinear EDMD model:
 k = m
-n_lift_bedmd = model_bedmd.n_lift
+n_lift_bedmd = sys_bedmd.n
 Q_bedmd = q_cl*np.eye(int(2*n_lift_bedmd))
 R_bedmd = r_cl*np.eye(n_lift_bedmd)
 C_h = model_bedmd.C[output_inds,:]
@@ -417,7 +430,7 @@ F_lin = np.concatenate((f_eta, f_eta_dot), axis=0)
 G_lin = np.concatenate((np.zeros((n_lift_bedmd,n_lift_bedmd)), np.eye(n_lift_bedmd)), axis=0)
 
 P_bedmd = sc.linalg.solve_continuous_are(F_lin, G_lin, Q_bedmd, R_bedmd)
-K_bedmd = -np.linalg.inv(R_bedmd)@G_lin.T@P_bedmd
+K_bedmd = np.linalg.inv(R_bedmd)@G_lin.T@P_bedmd
 controller_bedmd = BilinearFBLinController(sys_bedmd, output_bedmd, K_bedmd)
 controller_bedmd = PerturbedController(sys_bedmd, controller_bedmd,0.,const_offset=hover_thrust, umin=umin, umax=umax)
 
@@ -437,20 +450,19 @@ ctrl_cost_bedmd = np.linalg.norm(us_cl_bedmd, ord='fro')**2
 
 print('\nClosed loop performance statistics:')
 print(' -Tracking error:')
-print('   Tracking MSE DMD:   ', "{:.2f}".format(mse_cl_dmd),
-      '\n   Tracking MSE EDMD:  ', "{:.2f}".format(mse_cl_edmd),
-      '\n   Tracking MSE bEDMD: ', "{:.2f}".format(mse_cl_bedmd))
+print('   Tracking MSE DMD:   ', "{:.3f}".format(mse_cl_dmd),
+      '\n   Tracking MSE EDMD:  ', "{:.3f}".format(mse_cl_edmd),
+      '\n   Tracking MSE bEDMD: ', "{:.3f}".format(mse_cl_bedmd))
 print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(mse_cl_edmd)/(mse_cl_dmd))), ' %'
       '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_dmd))), ' %'
       '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_edmd))), ' %')
 print(' -Control effort:')
-print('   Control effort DMD:   ', "{:.2f}".format(ctrl_cost_dmd-hover_cost),
-      '\n   Control effort EDMD:  ', "{:.2f}".format(ctrl_cost_edmd-hover_cost),
-      '\n   Control effort bEDMD: ', "{:.2f}".format(ctrl_cost_bedmd-hover_cost))
+print('   Control effort DMD:   ', "{:.3f}".format(ctrl_cost_dmd-hover_cost),
+      '\n   Control effort EDMD:  ', "{:.3f}".format(ctrl_cost_edmd-hover_cost),
+      '\n   Control effort bEDMD: ', "{:.3f}".format(ctrl_cost_bedmd-hover_cost))
 print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(ctrl_cost_edmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
       '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
       '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_edmd-hover_cost))), ' %')
-
 
 
 def plot_paper(folder_name, show_plots=False):

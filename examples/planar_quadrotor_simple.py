@@ -145,7 +145,7 @@ traj_length_dc = 2.                                                 # Trajectory
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
 n_traj_dc = 50                                                      # Number of trajectories to execute, data collection
-noise_var = 1.                                                     # Exploration noise to perturb controller, data collection
+noise_var = 1.                                                      # Exploration noise to perturb controller, data collection
 
 xmax = np.array([2, 2, np.pi/3, 2.,2.,2.])                          # State constraints, trajectory generation
 xmin = -xmax
@@ -155,36 +155,36 @@ x0_max = np.array([xmax[0], xmax[1], xmax[2], 1., 1., 1.])          # Initial va
 Q_trajgen = sc.sparse.diags([0,0,0,0,0,0])                          # State penalty matrix, trajectory generation
 QN_trajgen = sc.sparse.diags([5e1,5e1,5e1,1e1,1e1,1e1])             # Final state penalty matrix, trajectory generation
 R_trajgen = sc.sparse.eye(m)                                        # Actuation penalty matrix, trajectory generation
-sub_sample_rate = 1                                                 # Rate to subsample data for training
+sub_sample_rate = 5                                                 # Rate to subsample data for training
 model_fname = 'examples/planar_quad_models_sim'                     # Path to save learned models
-n_cols = 10                                                         # Numb  er of columns in training data plot
-learn_models = False                                                # Learn models (True), load models (False)
+n_cols = 10                                                         # Number of columns in training data plot
+learn_models = True                                                 # Learn models (True), load models (False)
 
 #DMD parameters:
-alpha_dmd = 4.9e-3                                                    # Regularization strength (LASSO) DMD
+alpha_dmd = 1.4e-2                                                    # Regularization strength (LASSO) DMD
 tune_mdl_dmd = False
 
 #EDMD parameters:
-alpha_edmd = 1.4e-1                                                   # Regularization strength (LASSO) EDMD
+alpha_edmd = 1.1e-1                                                   # Regularization strength (LASSO) EDMD
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd = 2e-2                                                  # Regularization strength (LASSO) bEDMD
+alpha_bedmd = 1.9e-2                                                  # Regularization strength (LASSO) bEDMD
 tune_mdl_bedmd = False
 
 # Prediction performance evaluation parameters:
 folder_plots = 'examples/figures/'                                  # Path to save plots
-n_traj_ol = 100                                                      # Number of trajectories to execute, open loop
+n_traj_ol = 100                                                     # Number of trajectories to execute, open loop
 
 #Closed loop performance evaluation parameters:
-x0_cl = np.array([-1.75, 0., 0., 0., 0., 0.])                       # Initial value, closed loop trajectory
-set_pt_cl = np.array([1.75, 1., 0., 0., 0., 0.])                    # Desired final value, closed loop trajectory
+x0_cl = np.array([-1., 0., 0., 0., 0., 0.])                         # Initial value, closed loop trajectory
+set_pt_cl = np.array([1., 1., 0., 0., 0., 0.])                      # Desired final value, closed loop trajectory
 t_eval_cl = dt * np.arange(201)                                     # Simulation time points, closed loop
 Q_trajgen_cl = sc.sparse.diags([0,0,0,0,0,0])                       # State penalty matrix, trajectory generation
-QN_trajgen_cl = sc.sparse.diags([1e2,1e2,1e2,1e1,1e1,1e1])          # Final state penalty matrix, trajectory generation
+QN_trajgen_cl = sc.sparse.diags([3e2,3e2,3e2,1e2,1e2,1e2])          # Final state penalty matrix, trajectory generation
 R_trajgen_cl = sc.sparse.eye(m)                                     # Actuation penalty matrix, trajectory generation
 mpc_trajgen_cl = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,QN_trajgen_cl,R_trajgen_cl,QN_trajgen_cl,set_pt_cl)
-q_cl, r_cl = 10, 1                                                  # State and actuation penalty values, closed loop
+q_cl, r_cl = 2e1, 1                                                  # State and actuation penalty values, closed loop
 output_inds = np.array([1, 2])                                      # Output states, feedback linearizing controller
 
 #================================================== COLLECT DATA ==================================================
