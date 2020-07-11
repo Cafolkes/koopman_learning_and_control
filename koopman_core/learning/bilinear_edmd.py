@@ -51,7 +51,6 @@ class BilinearEdmd(Edmd):
         self.construct_bilinear_basis_()
         z = np.array([super(BilinearEdmd, self).lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii, :-1]) for ii in range(self.n_traj)])
-        #z_bilinear = self.lift(x, u)
         z_bilinear = np.array([self.lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
 
         order = 'F'
