@@ -70,7 +70,7 @@ class BilinearEdmd(Edmd):
         pass
 
     def lift(self, x, u):
-            return np.array([self.bilinear_basis(x[ii, :], u[ii, :]) for ii in range(x.shape[0])])
+        return np.array([self.bilinear_basis(x[ii, :], u[ii, :]) for ii in range(x.shape[0])])
 
     def reduce_mdl(self):
         # Identify what basis functions are in use:
@@ -97,7 +97,7 @@ class BilinearEdmd(Edmd):
 
         #TODO: Implement bilinearization for general number of inputs (below implementation not working)
         #for ii in range(self.m):
-        #    basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[ii]))
+            #basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[ii]))
         basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[0]))
         basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[1]))
 
