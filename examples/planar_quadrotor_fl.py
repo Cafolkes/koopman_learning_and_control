@@ -10,7 +10,7 @@ from core.dynamics import LinearSystemDynamics, ConfigurationDynamics
 
 from koopman_core.controllers import OpenLoopController, MPCController,BilinearFBLinController, PerturbedController, LinearLiftedController
 from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
-from koopman_core.learning import Edmd, BilinearEdmd
+from koopman_core.learning import Edmd, FlBilinearLearner
 from koopman_core.basis_functions import PolySineBasis
 from koopman_core.learning.utils import differentiate_vec
 from koopman_core.systems import PlanarQuadrotorForceInput
@@ -156,25 +156,28 @@ Q_trajgen = sc.sparse.diags([0,0,0,0,0,0])                          # State pena
 QN_trajgen = sc.sparse.diags([5e1,5e1,5e1,1e1,1e1,1e1])             # Final state penalty matrix, trajectory generation
 R_trajgen = sc.sparse.eye(m)                                        # Actuation penalty matrix, trajectory generation
 sub_sample_rate = 5                                                 # Rate to subsample data for training
-model_fname = 'examples/planar_quad_models_sim'                     # Path to save learned models
+model_fname = 'examples/planar_quad_models'                         # Path to save learned models
+plot_training_data = False
 n_cols = 10                                                         # Number of columns in training data plot
 learn_models = True                                                 # Learn models (True), load models (False)
 
 #DMD parameters:
-alpha_dmd = 1.4e-2                                                    # Regularization strength (LASSO) DMD
+alpha_dmd = 1.4e-2                                                  # Regularization strength (LASSO) DMD
 tune_mdl_dmd = False
 
 #EDMD parameters:
-alpha_edmd = 1.1e-1                                                   # Regularization strength (LASSO) EDMD
+alpha_edmd = 1.1e-1                                                 # Regularization strength (LASSO) EDMD
 tune_mdl_edmd = False
 
 #Bilinear EDMD parameters:
-alpha_bedmd = 1.9e-2                                                  # Regularization strength (LASSO) bEDMD
+alpha_bedmd_init = 1.9e-2                                           # Regularization strength (LASSO) bEDMD
+alpha_bedmd = 1.9e-2
 tune_mdl_bedmd = False
+#print('Running experiment with alpha = ', alpha_bedmd)
 
 # Prediction performance evaluation parameters:
 folder_plots = 'examples/figures/'                                  # Path to save plots
-n_traj_ol = 100                                                     # Number of trajectories to execute, open loop
+n_traj_ol = 100                                                      # Number of trajectories to execute, open loop
 
 #Closed loop performance evaluation parameters:
 x0_cl = np.array([-1., 0., 0., 0., 0., 0.])                         # Initial value, closed loop trajectory
@@ -194,37 +197,41 @@ if learn_models:
     xs = np.empty((n_traj_dc, n_pred_dc + 1, n))
     us = np.empty((n_traj_dc, n_pred_dc, m))
 
-    plt.figure(figsize=(12,12*n_traj_dc/(n_cols**2)))
+    if plot_training_data:
+        plt.figure(figsize=(12, 12 * n_traj_dc / (n_cols ** 2)))
     for ii in range(n_traj_dc):
-        x0 = np.asarray([rand.uniform(l,u) for l, u in zip(-x0_max, x0_max)])
-        set_pt_dc = np.asarray([rand.uniform(l,u) for l, u in zip(-x0_max, x0_max)])
+        x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
+        set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
         mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
                                     QN_trajgen, set_pt_dc)
         mpc_trajgen.eval(x0, 0)
         xd[ii, :, :] = mpc_trajgen.parse_result().T
-        while abs(x0[0]-set_pt_dc[0]) < 1 or np.any(np.isnan(xd[ii,:,:])):
-            x0 = np.asarray([rand.uniform(l,u) for l, u in zip(-x0_max, x0_max)])
+        while abs(x0[0]) < 1.25 or np.any(np.isnan(xd[ii, :, :])):
+            x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
             set_pt_dc = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
             mpc_trajgen = MPCController(nominal_sys, n_pred_dc, dt, umin, umax, xmin, xmax, QN_trajgen, R_trajgen,
                                         QN_trajgen, set_pt_dc)
             mpc_trajgen.eval(x0, 0)
             xd[ii, :, :] = mpc_trajgen.parse_result().T
 
-        output = QuadrotorPdOutput(quadrotor, xd[ii,:,:], t_eval, n, m)
+        output = QuadrotorPdOutput(quadrotor, xd[ii, :, :], t_eval, n, m)
         pd_controller = PDController(output, K_dc_p, K_dc_d)
         perturbed_pd_controller = PerturbedController(quadrotor, pd_controller, noise_var, const_offset=hover_thrust)
-        xs[ii,:,:], us[ii,:,:] = quadrotor.simulate(x0, perturbed_pd_controller, t_eval)
+        xs[ii, :, :], us[ii, :, :] = quadrotor.simulate(x0, perturbed_pd_controller, t_eval)
 
-        plt.subplot(int(np.ceil(n_traj_dc/n_cols)),n_cols,ii+1)
-        plt.plot(t_eval, xs[ii,:,0], 'b', label='$y$')
-        plt.plot(t_eval, xs[ii, :, 1], 'g', label='$z$')
-        plt.plot(t_eval, xs[ii,:,2], 'r', label='$\\theta$')
-        plt.plot(t_eval, xd[ii,:,0], '--b', label='$y_d$')
-        plt.plot(t_eval, xd[ii, :, 1], '--g', label='$z_d$')
-        plt.plot(t_eval, xd[ii,:,2], '--r', label='$\\theta_d$')
-    plt.suptitle('Training data \nx-axis: time (sec), y-axis: state value, $x$ - blue, $xd$ - dotted blue, $\\theta$ - red, $\\theta_d$ - dotted red',y=0.94)
-    plt.show()
-
+        if plot_training_data:
+            plt.subplot(int(np.ceil(n_traj_dc / n_cols)), n_cols, ii + 1)
+            plt.plot(t_eval, xs[ii, :, 0], 'b', label='$y$')
+            plt.plot(t_eval, xs[ii, :, 1], 'g', label='$z$')
+            plt.plot(t_eval, xs[ii, :, 2], 'r', label='$\\theta$')
+            plt.plot(t_eval, xd[ii, :, 0], '--b', label='$y_d$')
+            plt.plot(t_eval, xd[ii, :, 1], '--g', label='$z_d$')
+            plt.plot(t_eval, xd[ii, :, 2], '--r', label='$\\theta_d$')
+    if plot_training_data:
+        plt.suptitle(
+            'Training data \nx-axis: time (sec), y-axis: state value, $x$ - blue, $xd$ - dotted blue, $\\theta$ - red, $\\theta_d$ - dotted red',
+            y=0.94)
+        plt.show()
     # ================================================== LEARN MODELS ==================================================
 
     #DMD:
@@ -265,18 +272,22 @@ if learn_models:
 
     #Bilinear EDMD:
     n_lift_bedmd = n_lift_edmd
-    C_bedmd = np.zeros((n,n_lift_bedmd))
-    C_bedmd[:,1:n+1] = np.eye(n)
+    C_x_bedmd = np.zeros((n, n_lift_bedmd))
+    C_x_bedmd[:, 1:n + 1] = np.eye(n)
+    C_h_bedmd = C_x_bedmd[output_inds, :]
 
     basis_bedmd = lambda x: poly_sine_features.transform(x)
-    optimizer_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd, fit_intercept=False, selection='random')
+    optimizer_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd_init, fit_intercept=False, selection='random')
     cv_bedmd = linear_model.MultiTaskLassoCV(fit_intercept=False, n_jobs=-1, cv=3, selection='random')
     standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
 
-    model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_bedmd)
-    X_bedmd, y_bedmd = model_bedmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
-    model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True)
-    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis)
+    model_bedmd = FlBilinearLearner(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, C_h_bedmd,
+                                    cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_x_bedmd)
+    X_bedmd, y_bedmd = model_bedmd.process(xs, us - hover_thrust, np.tile(t_eval, (n_traj_dc, 1)),
+                                           downsample_rate=sub_sample_rate)
+    model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True, l1_reg=alpha_bedmd)
+    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C,
+                                       model_bedmd.basis)
     if tune_mdl_bedmd:
         print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
 

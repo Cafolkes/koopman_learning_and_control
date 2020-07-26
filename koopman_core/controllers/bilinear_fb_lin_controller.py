@@ -30,7 +30,7 @@ class BilinearFBLinController(Controller):
         z_dot = self.dynamics.eval_dot(z, self.u_prev, t)
 
         eta_z = concatenate((z-self.output.z_d(t), z_dot - self.output.z_d_dot(t)))
-        nu = dot(self.lin_controller_gain, eta_z)
+        nu = -dot(self.lin_controller_gain, eta_z)
 
         act = self.dynamics.act(z, t)
         F = self.dynamics.F

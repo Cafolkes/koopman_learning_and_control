@@ -51,7 +51,6 @@ class BilinearEdmd(Edmd):
         self.construct_bilinear_basis_()
         z = np.array([super(BilinearEdmd, self).lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
         z_dot = np.array([differentiate_vec(z[ii, :, :], t[ii, :-1]) for ii in range(self.n_traj)])
-        #z_bilinear = self.lift(x, u)
         z_bilinear = np.array([self.lift(x[ii, :-1, :], u[ii, :, :]) for ii in range(self.n_traj)])
 
         order = 'F'
@@ -71,7 +70,7 @@ class BilinearEdmd(Edmd):
         pass
 
     def lift(self, x, u):
-            return np.array([self.bilinear_basis(x[ii, :], u[ii, :]) for ii in range(x.shape[0])])
+        return np.array([self.bilinear_basis(x[ii, :], u[ii, :]) for ii in range(x.shape[0])])
 
     def reduce_mdl(self):
         # Identify what basis functions are in use:
@@ -98,7 +97,7 @@ class BilinearEdmd(Edmd):
 
         #TODO: Implement bilinearization for general number of inputs (below implementation not working)
         #for ii in range(self.m):
-        #    basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[ii]))
+            #basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[ii]))
         basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[0]))
         basis_lst.append(lambda x, u: np.multiply(self.basis(x), u[1]))
 
