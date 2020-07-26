@@ -6,7 +6,7 @@ from koopman_core.learning import BilinearEdmd
 
 
 class FlBilinearLearner(BilinearEdmd):
-    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, C_h, cv=None, standardizer=None, C=None, first_obs_const=True, alpha=1e-6):
+    def __init__(self, n, m, basis, n_lift, n_traj, optimizer, C_h, cv=None, standardizer=None, C=None, first_obs_const=True, alpha=1e-16):
         super(FlBilinearLearner, self).__init__(n, m, basis, n_lift, n_traj, optimizer, cv=cv, standardizer=standardizer, C=C, first_obs_const=first_obs_const)
         self.C_h = C_h
         self.alpha=alpha
