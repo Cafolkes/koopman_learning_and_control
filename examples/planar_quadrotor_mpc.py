@@ -8,7 +8,7 @@ import dill
 from core.controllers import PDController
 from core.dynamics import LinearSystemDynamics, ConfigurationDynamics
 
-from koopman_core.controllers import OpenLoopController, MPCController,BilinearFBLinController, PerturbedController, LinearLiftedController
+from koopman_core.controllers import OpenLoopController, MPCController,BilinearFBLinController, PerturbedController, LinearLiftedController, BilinearMPCController, MPCControllerFast
 from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
 from koopman_core.learning import Edmd, BilinearEdmd
 from koopman_core.basis_functions import PolySineBasis
@@ -130,6 +130,7 @@ B_nom = np.array([[0., 0.],                                         # Linearizat
                   [-prop_arm/inertia, prop_arm/inertia]])
 
 hover_thrust = mass*gravity/m
+hover_offset = np.array([hover_thrust, hover_thrust])
 q_dc, r_dc = 1e2, 1                                                 # State and actuation penalty values, data collection
 Q_dc = q_dc * np.identity(n)                                        # State penalty matrix, data collection
 R_dc = r_dc*np.identity(m)                                          # Actuation penalty matrix, data collection
@@ -149,7 +150,7 @@ noise_var = 1.                                                      # Exploratio
 
 xmax = np.array([2, 2, np.pi/3, 2.,2.,2.])                          # State constraints, trajectory generation
 xmin = -xmax
-umax = np.array([50., 50.]) - hover_thrust                          # Actuation constraint, trajectory generation
+umax = np.array([50, 50]) - hover_thrust                          # Actuation constraint, trajectory generation
 umin = np.array([0., 0.]) - hover_thrust
 x0_max = np.array([xmax[0], xmax[1], xmax[2], 1., 1., 1.])          # Initial value limits
 Q_trajgen = sc.sparse.diags([0,0,0,0,0,0])                          # State penalty matrix, trajectory generation
@@ -184,8 +185,11 @@ Q_trajgen_cl = sc.sparse.diags([0,0,0,0,0,0])                       # State pena
 QN_trajgen_cl = sc.sparse.diags([3e2,3e2,3e2,1e2,1e2,1e2])          # Final state penalty matrix, trajectory generation
 R_trajgen_cl = sc.sparse.eye(m)                                     # Actuation penalty matrix, trajectory generation
 mpc_trajgen_cl = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,QN_trajgen_cl,R_trajgen_cl,QN_trajgen_cl,set_pt_cl)
-q_cl, r_cl = 2e1, 1                                                  # State and actuation penalty values, closed loop
+q_cl, r_cl = 5e2, 1                                                  # State and actuation penalty values, closed loop
 output_inds = np.array([1, 2])                                      # Output states, feedback linearizing controller
+
+#MPC parameters:
+
 
 #================================================== COLLECT DATA ==================================================
 
@@ -333,11 +337,11 @@ for ii in range(n_traj_ol):
 
     xs_dmd_ol[ii,:,:], _ = sys_dmd.simulate(x0, ol_controller_nom, t_eval[:-1])
 
-    z_0_edmd = sys_edmd.phi_fun(np.atleast_2d(x0)).squeeze()
+    z_0_edmd = sys_edmd.basis(np.atleast_2d(x0)).squeeze()
     zs_edmd_tmp, _ = sys_edmd.simulate(z_0_edmd, ol_controller_nom, t_eval[:-1])
-    xs_edmd_ol[ii,:,:] = np.dot(model_edmd.C, zs_edmd_tmp.T).T
+    xs_edmd_ol[ii,:,:] = np.dot(sys_edmd.C, zs_edmd_tmp.T).T
 
-    z_0_bedmd = sys_bedmd.phi_fun(np.atleast_2d(x0)).squeeze()
+    z_0_bedmd = sys_bedmd.basis(np.atleast_2d(x0)).squeeze()
     zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval[:-1])
     xs_bedmd_ol[ii,:,:] = np.dot(model_bedmd.C, zs_bedmd_tmp.T).T
 
@@ -381,47 +385,21 @@ y_d_ddot = xr_cl_dot[output_inds+int(n/2),:]
 # Design LQR controller for DMD model:
 Q_dmd = q_cl*np.identity(n)
 R_dmd = r_cl*np.identity(m)
-P_dmd = sc.linalg.solve_continuous_are(model_dmd.A, model_dmd.B, Q_dmd, R_dmd)
-K_dmd = np.linalg.inv(R_dmd)@model_dmd.B.T@P_dmd
-K_dmd_p, K_dmd_d = K_dmd[:,:int(n/2)], K_dmd[:,int(n/2):]
-output_dmd = QuadrotorPdOutput(sys_dmd, xr_cl.T, t_eval_cl, n, m)
-controller_dmd = PDController(output_dmd, K_dmd_p, K_dmd_d)
-controller_dmd = PerturbedController(sys_dmd,controller_dmd,0.,const_offset=hover_thrust, umin=umin, umax=umax)
+controller_dmd = MPCController(sys_dmd, 50, dt, umin, umax, xmin, xmax, Q_dmd, R_dmd, Q_dmd, xr_cl, const_offset=hover_offset)
+controller_dmd = PerturbedController(sys_dmd,controller_dmd,0.,const_offset=hover_thrust)
 
-# Design LQR controller for EDMD model:
-z_d_edmd = np.array([sys_edmd.phi_fun(x.reshape(1,-1)).squeeze() for x in xr_cl.T]).T
-z_d_dot_edmd = differentiate_vec(z_d_edmd.T, t_eval_cl).T
-z_d_ddot_edmd = differentiate_vec(z_d_dot_edmd.T, t_eval_cl).T
-output_edmd = QuadrotorTrajectoryOutput(sys_edmd, y_d, y_d_dot, y_d_ddot, dt, z_d_edmd, z_d_dot_edmd, z_d_ddot_edmd, model_edmd.C[output_inds,:])
+# Design MPC controller for EDMD model:
+Q_mpc = q_cl*np.eye(n)
+R_mpc = r_cl*np.eye(m)
+N_mpc = 50
+edmd_lin_sys = LinearSystemDynamics(A=sys_edmd.A, B=sys_edmd.B)
+controller_edmd = MPCController(edmd_lin_sys, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, lifting=True, edmd_object=sys_edmd, const_offset=hover_offset)
+controller_edmd = PerturbedController(sys_edmd,controller_edmd,0.,const_offset=hover_thrust)
 
-Q_edmd = q_cl*np.identity(sys_edmd.n)
-R_edmd = r_cl*np.identity(m)
-P_edmd = sc.linalg.solve_continuous_are(sys_edmd.A, sys_edmd.B, Q_edmd, R_edmd)
-K_edmd = np.linalg.inv(R_edmd)@model_edmd.B.T@P_edmd
-controller_edmd = LinearLiftedController(output_edmd, K_edmd)
-controller_edmd = PerturbedController(quadrotor, controller_edmd,0.,const_offset=hover_thrust, umin=umin, umax=umax)
 
 # Design feedback linearizing controller for bilinear EDMD model:
-k = m
-n_lift_bedmd = sys_bedmd.n
-Q_bedmd = q_cl*np.eye(int(2*n_lift_bedmd))
-R_bedmd = r_cl*np.eye(n_lift_bedmd)
-C_h = model_bedmd.C[output_inds,:]
-
-z_d_bedmd = np.array([sys_bedmd.phi_fun(x.reshape(1,-1)).squeeze() for x in xr_cl.T]).T
-z_d_dot_bedmd = differentiate_vec(z_d_bedmd.T, t_eval_cl).T
-z_d_ddot_bedmd = differentiate_vec(z_d_dot_bedmd.T, t_eval_cl).T
-output_bedmd = QuadrotorTrajectoryOutput(sys_bedmd, y_d, y_d_dot, y_d_ddot, dt, z_d_bedmd, z_d_dot_bedmd, z_d_ddot_bedmd, C_h)
-
-f_eta = np.concatenate((np.zeros((n_lift_bedmd,n_lift_bedmd)), np.eye(n_lift_bedmd)), axis=1)
-f_eta_dot = np.concatenate((sys_bedmd.F@sys_bedmd.F, np.zeros((n_lift_bedmd,n_lift_bedmd))), axis=1)
-F_lin = np.concatenate((f_eta, f_eta_dot), axis=0)
-G_lin = np.concatenate((np.zeros((n_lift_bedmd,n_lift_bedmd)), np.eye(n_lift_bedmd)), axis=0)
-
-P_bedmd = sc.linalg.solve_continuous_are(F_lin, G_lin, Q_bedmd, R_bedmd)
-K_bedmd = np.linalg.inv(R_bedmd)@G_lin.T@P_bedmd
-controller_bedmd = BilinearFBLinController(sys_bedmd, output_bedmd, K_bedmd)
-controller_bedmd = PerturbedController(sys_bedmd, controller_bedmd,0.,const_offset=hover_thrust, umin=umin, umax=umax)
+controller_bedmd = BilinearMPCController(sys_bedmd, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, lifting=True, const_offset=hover_offset)
+controller_bedmd = PerturbedController(sys_bedmd,controller_bedmd,0.,const_offset=hover_thrust)
 
 # Simulate the system under closed loop control:
 xs_cl_dmd, us_cl_dmd = quadrotor.simulate(x0_cl, controller_dmd, t_eval_cl)
@@ -430,9 +408,9 @@ xs_cl_bedmd, us_cl_bedmd = quadrotor.simulate(x0_cl, controller_bedmd, t_eval_cl
 
 #hover_cost = 2*hover_thrust**2*t_eval_cl.size
 hover_cost = 0.
-mse_cl_dmd = np.linalg.norm(xs_cl_dmd[1:,output_inds]-xr_cl[output_inds,1:].T, ord='fro')**2
-mse_cl_edmd = np.linalg.norm(xs_cl_edmd[1:,output_inds]-xr_cl[output_inds,1:].T, ord='fro')**2
-mse_cl_bedmd = np.linalg.norm(xs_cl_bedmd[1:,output_inds]-xr_cl[output_inds,1:].T, ord='fro')**2
+mse_cl_dmd = np.linalg.norm(xs_cl_dmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
+mse_cl_edmd = np.linalg.norm(xs_cl_edmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
+mse_cl_bedmd = np.linalg.norm(xs_cl_bedmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
 ctrl_cost_dmd = np.linalg.norm(us_cl_dmd, ord='fro')**2
 ctrl_cost_edmd = np.linalg.norm(us_cl_edmd, ord='fro')**2
 ctrl_cost_bedmd = np.linalg.norm(us_cl_bedmd, ord='fro')**2
@@ -441,18 +419,21 @@ print('\nClosed loop performance statistics:')
 print(' -Tracking error:')
 print('   Tracking MSE DMD:   ', "{:.3f}".format(mse_cl_dmd),
       '\n   Tracking MSE EDMD:  ', "{:.3f}".format(mse_cl_edmd),
-      '\n   Tracking MSE bEDMD: ', "{:.3f}".format(mse_cl_bedmd))
+      '\n   Tracking MSE bEDMD: ', "{:.3f}".format(mse_cl_bedmd),
+      )
 print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(mse_cl_edmd)/(mse_cl_dmd))), ' %'
       '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_dmd))), ' %'
-      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_edmd))), ' %')
+      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_edmd))), ' %'
+      )
 print(' -Control effort:')
 print('   Control effort DMD:   ', "{:.3f}".format(ctrl_cost_dmd-hover_cost),
       '\n   Control effort EDMD:  ', "{:.3f}".format(ctrl_cost_edmd-hover_cost),
-      '\n   Control effort bEDMD: ', "{:.3f}".format(ctrl_cost_bedmd-hover_cost))
+      '\n   Control effort bEDMD: ', "{:.3f}".format(ctrl_cost_bedmd-hover_cost),
+      )
 print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(ctrl_cost_edmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
       '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
-      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_edmd-hover_cost))), ' %')
-
+      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_edmd-hover_cost))), ' %'
+      )
 
 def plot_paper(folder_name, show_plots=False):
     import matplotlib
@@ -489,29 +470,36 @@ def plot_paper(folder_name, show_plots=False):
         plt.show()
 
     #Plot closed loop results:
-    x_index = output_inds[0]
-    y_index = output_inds[1]
     plt.figure(figsize=(figwidth, 4))
 
-    plt.subplot(2, 2, 1)
-    plt.plot(t_eval_cl, xr_cl[x_index,:], '--r', linewidth=2, label='Reference')
-    plt.plot(t_eval_cl,xs_cl_dmd[:, x_index], linewidth=lw, label='DMD')
-    plt.plot(t_eval_cl,xs_cl_edmd[:, x_index], linewidth=lw, label='EDMD')
-    plt.plot(t_eval_cl,xs_cl_bedmd[:, x_index], linewidth=lw, label='bEDMD')
-    plt.ylabel('$z$', fontsize=fs)
-    plt.title('Output states', fontsize=fs)
+    plt.subplot(3, 2, 1)
+    plt.plot(t_eval_cl, xr_cl[0,:], '--r', linewidth=2, label='Reference')
+    plt.plot(t_eval_cl,xs_cl_dmd[:, 0], linewidth=lw, label='DMD')
+    plt.plot(t_eval_cl,xs_cl_edmd[:, 0], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl,xs_cl_bedmd[:, 0], linewidth=lw, label='bEDMD')
+    plt.ylabel('$x$', fontsize=fs)
+    plt.title('States', fontsize=fs)
     plt.grid()
 
-    plt.subplot(2, 2, 3)
-    plt.plot(t_eval_cl, xr_cl[y_index, :], '--r', linewidth=2, label='Reference')
-    plt.plot(t_eval_cl, xs_cl_dmd[:, y_index], linewidth=lw, label='DMD')
-    plt.plot(t_eval_cl, xs_cl_edmd[:, y_index], linewidth=lw, label='EDMD')
-    plt.plot(t_eval_cl, xs_cl_bedmd[:, y_index], linewidth=lw, label='bEDMD')
+    plt.subplot(3, 2, 3)
+    plt.plot(t_eval_cl, xr_cl[1, :], '--r', linewidth=2, label='Reference')
+    plt.plot(t_eval_cl, xs_cl_dmd[:, 1], linewidth=lw, label='DMD')
+    plt.plot(t_eval_cl, xs_cl_edmd[:, 1], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl, xs_cl_bedmd[:, 1], linewidth=lw, label='bEDMD')
+    plt.ylabel('$z$', fontsize=fs)
+    plt.xlabel('Time (sec)')
+    plt.grid()
+
+    plt.subplot(3, 2, 5)
+    plt.plot(t_eval_cl, xr_cl[2, :], '--r', linewidth=2, label='Reference')
+    plt.plot(t_eval_cl, xs_cl_dmd[:, 2], linewidth=lw, label='DMD')
+    plt.plot(t_eval_cl, xs_cl_edmd[:, 2], linewidth=lw, label='EDMD')
+    plt.plot(t_eval_cl, xs_cl_bedmd[:, 2], linewidth=lw, label='bEDMD')
     plt.ylabel('$\\theta$', fontsize=fs)
     plt.xlabel('Time (sec)')
     plt.grid()
 
-    plt.subplot(2, 2, 2)
+    plt.subplot(3, 2, 2)
     plt.plot(t_eval_cl[:-1], us_cl_dmd[:, 0], linewidth=lw, label='DMD')
     plt.plot(t_eval_cl[:-1], us_cl_edmd[:, 0], linewidth=lw, label='EDMD')
     plt.plot(t_eval_cl[:-1], us_cl_bedmd[:, 0], linewidth=lw, label='bEDMD')
@@ -519,7 +507,7 @@ def plot_paper(folder_name, show_plots=False):
     plt.title('Control action', fontsize=fs)
     plt.grid()
 
-    plt.subplot(2, 2, 4)
+    plt.subplot(3, 2, 4)
     plt.plot(t_eval_cl[:-1], us_cl_dmd[:, 1], linewidth=lw, label='DMD')
     plt.plot(t_eval_cl[:-1], us_cl_edmd[:, 1], linewidth=lw, label='EDMD')
     plt.plot(t_eval_cl[:-1], us_cl_bedmd[:, 1], linewidth=lw, label='bEDMD')
@@ -537,4 +525,3 @@ def plot_paper(folder_name, show_plots=False):
         plt.show()
 
 plot_paper(folder_plots, show_plots=True)
-

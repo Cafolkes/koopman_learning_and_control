@@ -97,7 +97,7 @@ class Edmd():
         self.B = self.B[in_use, :]
         self.C = self.C[:, in_use]
         self.basis_reduced = lambda x: self.basis(x)[:,in_use]
-        self.n_lift_reduced = in_use.size
+        self.n_lift = in_use.size
         self.obs_in_use = in_use
 
     def score(self, x, u):

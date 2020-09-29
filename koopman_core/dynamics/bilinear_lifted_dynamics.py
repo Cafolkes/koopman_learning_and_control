@@ -1,7 +1,8 @@
 from numpy import array, concatenate, dot, reshape, zeros, atleast_1d
 from core.dynamics import AffineDynamics, SystemDynamics
+from koopman_core.learning.bilinear_edmd import BilinearEdmd
 
-class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
+class BilinearLiftedDynamics(SystemDynamics, AffineDynamics, BilinearEdmd):
     """Class for unconstrained bilinear dynamics
 
     State represented as x = (q, q_dot), where q are generalized coordinates and
@@ -10,7 +11,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     Override drift, act.
     """
 
-    def __init__(self, n, m, F, G, Cx, phi_fun):
+    def __init__(self, n, m, A, B, C, basis):
         """Create a RoboticDynamics object.
 
         Inputs:
@@ -20,19 +21,20 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         Actuated dynamics matrix, G: list(array(n,n))
         """
 
-        assert m == len(G)
-        assert n == F.shape[0]
+        assert m == len(B)
+        assert n == A.shape[0]
 
         SystemDynamics.__init__(self, n, m)
         self.k = n
-        self.F = F
-        self.G = G
-        self.Cx = Cx
-        self.phi_fun = phi_fun
+        self.A = A
+        self.B = B
+        self.C = C
+        self.basis = basis
 
+        self.construct_bilinear_basis_()
 
     def drift(self, x, t):
-        return dot(self.F, x)
+        return dot(self.A, x)
 
     def act(self, x, t):
-        return array([g@x for g in self.G]).T
+        return array([b@x for b in self.B]).T

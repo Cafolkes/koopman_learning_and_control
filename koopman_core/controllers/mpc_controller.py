@@ -14,7 +14,7 @@ class MPCController(Controller):
 
     Use lifting=True to solve MPC in the lifted space
     """
-    def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, plotMPC=False, plotMPC_filename="",lifting=False, edmd_object=None):
+    def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, plotMPC=False, plotMPC_filename="",lifting=False, edmd_object=None, const_offset=None):
         """__init__ Create an MPC controller
         
         Arguments:
@@ -46,8 +46,8 @@ class MPCController(Controller):
         #self._osqp_Ad = sparse.eye(nx)+Ac*self.dt
         #self._osqp_Bd = Bc*self.dt
         lin_model_d = cont2discrete((Ac,Bc,np.eye(nx),np.zeros((nu,1))),dt)
-        self._osqp_Ad = sparse.csc_matrix(lin_model_d[0]) #TODO: If bad behavior, delete this
-        self._osqp_Bd = sparse.csc_matrix(lin_model_d[1]) #TODO: If bad behavior, delete this
+        self._osqp_Ad = sparse.csc_matrix(lin_model_d[0])
+        self._osqp_Bd = sparse.csc_matrix(lin_model_d[1])
         self.plotMPC = plotMPC
         self.plotMPC_filename = plotMPC_filename
         self.q_d = xr
@@ -59,6 +59,10 @@ class MPCController(Controller):
 
         self.nu = nu
         self.nx = nx
+        if const_offset is None:
+            self.const_offset = np.zeros(nu)
+        else:
+            self.const_offset = const_offset
 
         self.comp_time = []
 
@@ -88,9 +92,9 @@ class MPCController(Controller):
             QCT = np.transpose(Q.dot(edmd_object.C))
             QNCT = np.transpose(QN.dot(edmd_object.C))
             if (xr.ndim==1):
-                q = np.hstack([np.kron(np.ones(N), -QCT.dot(xr)), -QNCT.dot(xr), np.zeros(N*nu)])
+                q = np.hstack([np.kron(np.ones(N), -QCT.dot(xr)), -QNCT.dot(xr), np.tile(2*R.dot(self.const_offset),(N))])
             elif (xr.ndim==2):
-                q = np.hstack([np.reshape(-QCT.dot(xr),((N+1)*nx,),order='F'), np.zeros(N*nu)])
+                q = np.hstack([np.reshape(-QCT.dot(xr),((N+1)*nx,),order='F'), np.tile(2*R.dot(self.const_offset),(N))])
 
             # - input and state constraints
             Aineq = sparse.block_diag([edmd_object.C for i in range(N+1)]+[np.eye(N*nu)])
@@ -102,9 +106,9 @@ class MPCController(Controller):
                                 sparse.kron(sparse.eye(N), R)]).tocsc()
             # - linear objective
             if (xr.ndim==1):
-                q = np.hstack([np.kron(np.ones(N), -Q.dot(xr)), -QN.dot(xr), np.zeros(N*nu)])
+                q = np.hstack([np.kron(np.ones(N), -Q.dot(xr)), -QN.dot(xr), np.tile(2*R.dot(self.const_offset),(N))])
             elif (xr.ndim==2):
-                q = np.hstack([np.reshape(-Q.dot(xr),((N+1)*nx,),order='F'), np.zeros(N*nu)])  #TODO: Check if reshape is reshaping in the expected order
+                q = np.hstack([np.reshape(-Q.dot(xr),((N+1)*nx,),order='F'), np.tile(2*R.dot(self.const_offset),(N))])  #TODO: Check if reshape is reshaping in the expected order
 
             # - input and state constraints
             Aineq = sparse.eye((N+1)*nx + N*nu)
