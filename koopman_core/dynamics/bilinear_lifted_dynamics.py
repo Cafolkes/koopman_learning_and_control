@@ -2,7 +2,8 @@ from numpy import array, concatenate, dot, reshape, zeros, atleast_1d
 from core.dynamics import AffineDynamics, SystemDynamics
 from koopman_core.learning.bilinear_edmd import BilinearEdmd
 
-class BilinearLiftedDynamics(SystemDynamics, AffineDynamics, BilinearEdmd):
+#class BilinearLiftedDynamics(SystemDynamics, AffineDynamics, BilinearEdmd):
+class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     """Class for unconstrained bilinear dynamics
 
     State represented as x = (q, q_dot), where q are generalized coordinates and
@@ -31,7 +32,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics, BilinearEdmd):
         self.C = C
         self.basis = basis
 
-        self.construct_bilinear_basis_()
+        #self.construct_bilinear_basis_()
 
     def drift(self, x, t):
         return dot(self.A, x)

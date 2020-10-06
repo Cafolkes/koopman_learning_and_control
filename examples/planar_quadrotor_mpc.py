@@ -1,5 +1,6 @@
 import numpy as np
 import scipy as sc
+import sympy as sym
 import random as rand
 from sklearn import preprocessing, linear_model
 import matplotlib.pyplot as plt
@@ -106,6 +107,22 @@ class QuadrotorTrajectoryOutput(ConfigurationDynamics):
     def interpolate_ref_(self, ref, t):
         return np.array([np.interp(t, self.t_d, ref[ii, :]) for ii in range(ref.shape[0])])
 
+def quad_sym(x,u,t, g, m, b, Ixx):
+    x1, x2, x3, x4, x5, x6 = x
+    u1, u2 = u
+
+    sin = sym.sin(x3)
+    cos = sym.cos(x3)
+    ff = np.array([x4,
+                   x5,
+                   x6,
+                   -(1/m)*sin*u1 - (1/m)*sin*u2,
+                   -g + (1/m)*cos*u1 + (1/m)*cos*u2,
+                   -(b/Ixx)*u1 + (b/Ixx)*u2])
+
+    return ff
+
+
 #================================================== DEFINE PARAMETERS ==================================================
 # Cart pole system parameters
 mass = 2.
@@ -179,14 +196,14 @@ n_traj_ol = 100                                                     # Number of 
 
 #Closed loop performance evaluation parameters:
 x0_cl = np.array([-1., 0., 0., 0., 0., 0.])                         # Initial value, closed loop trajectory
-set_pt_cl = np.array([1., 1., 0., 0., 0., 0.])                      # Desired final value, closed loop trajectory
+set_pt_cl = np.array([0., 1., 0., 0., 0., 0.])                      # Desired final value, closed loop trajectory
 t_eval_cl = dt * np.arange(201)                                     # Simulation time points, closed loop
 Q_trajgen_cl = sc.sparse.diags([0,0,0,0,0,0])                       # State penalty matrix, trajectory generation
 QN_trajgen_cl = sc.sparse.diags([3e2,3e2,3e2,1e2,1e2,1e2])          # Final state penalty matrix, trajectory generation
 R_trajgen_cl = sc.sparse.eye(m)                                     # Actuation penalty matrix, trajectory generation
 mpc_trajgen_cl = MPCController(nominal_sys,t_eval_cl.size,dt,umin,umax,xmin,xmax,QN_trajgen_cl,R_trajgen_cl,QN_trajgen_cl,set_pt_cl)
-q_cl, r_cl = 5e2, 1                                                  # State and actuation penalty values, closed loop
-output_inds = np.array([1, 2])                                      # Output states, feedback linearizing controller
+q_cl, r_cl = 1e2, 1                                                  # State and actuation penalty values, closed loop
+#output_inds = np.array([1, 2])                                      # Output states, feedback linearizing controller
 
 #MPC parameters:
 
@@ -369,36 +386,53 @@ print('   Improvement DMD -> EDMD:   ', "{:.2f}".format((1 - mse_edmd / mse_dmd)
       '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format((1 - mse_bedmd / mse_edmd) * 100), ' %')
 
 #========================================== EVALUATE CLOSED LOOP PERFORMANCE ==========================================
+#Generate optimal trajectory:
+from koopman_core.controllers import NonlinMPCController
+nonlin_mpc = NonlinMPCController(q_cl, r_cl, xmin, xmax, umin, umax)
+nonlin_mpc.mpc.x0 = x0_cl
+nonlin_mpc.mpc.set_initial_guess()
+nonlin_mpc.mpc.make_step(x0_cl)
+xr_cl = nonlin_mpc.parse_result()
+ur_cl = nonlin_mpc.get_control_prediction()
+
+#xr_cl = S.sim_data_xx.T
+#ur_cl = S.sim_data_uu[:-1,:]
+#t_eval_cl = S.sim_data_tt
+
+plt.plot(t_eval_cl, xr_cl[0,:])
+plt.plot(t_eval_cl, xr_cl[1,:])
+plt.plot(t_eval_cl, xr_cl[2,:])
+plt.show()
 
 #Compare closed loop performance:
 # Generate trajectory:
-mpc_trajgen_cl.eval(x0_cl, 0)
-xr_cl = mpc_trajgen_cl.parse_result()[:,:-1]
-ur_cl = mpc_trajgen_cl.get_control_prediction()
-xr_cl_dot = nominal_sys.eval_dot(xr_cl,ur_cl,0.)
+#mpc_trajgen_cl.eval(x0_cl, 0)
+#xr_cl = mpc_trajgen_cl.parse_result()[:,:-1]
+#ur_cl = mpc_trajgen_cl.get_control_prediction()
+#xr_cl_dot = nominal_sys.eval_dot(xr_cl,ur_cl,0.)
 
 # Define outputs:
-y_d = xr_cl[output_inds,:]
-y_d_dot = xr_cl[output_inds+int(n/2),:]
-y_d_ddot = xr_cl_dot[output_inds+int(n/2),:]
+#y_d = xr_cl[output_inds,:]
+#y_d_dot = xr_cl[output_inds+int(n/2),:]
+#y_d_ddot = xr_cl_dot[output_inds+int(n/2),:]
 
 # Design LQR controller for DMD model:
 Q_dmd = q_cl*np.identity(n)
 R_dmd = r_cl*np.identity(m)
-controller_dmd = MPCController(sys_dmd, 50, dt, umin, umax, xmin, xmax, Q_dmd, R_dmd, Q_dmd, xr_cl, const_offset=hover_offset)
+N_mpc = 25
+controller_dmd = MPCController(sys_dmd, N_mpc, dt, umin, umax, xmin, xmax, Q_dmd, R_dmd, Q_dmd, xr_cl, const_offset=hover_offset)
 controller_dmd = PerturbedController(sys_dmd,controller_dmd,0.,const_offset=hover_thrust)
 
 # Design MPC controller for EDMD model:
 Q_mpc = q_cl*np.eye(n)
 R_mpc = r_cl*np.eye(m)
-N_mpc = 50
 edmd_lin_sys = LinearSystemDynamics(A=sys_edmd.A, B=sys_edmd.B)
 controller_edmd = MPCController(edmd_lin_sys, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, lifting=True, edmd_object=sys_edmd, const_offset=hover_offset)
 controller_edmd = PerturbedController(sys_edmd,controller_edmd,0.,const_offset=hover_thrust)
 
 
 # Design feedback linearizing controller for bilinear EDMD model:
-controller_bedmd = BilinearMPCController(sys_bedmd, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, lifting=True, const_offset=hover_offset)
+controller_bedmd = BilinearMPCController(sys_bedmd, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, const_offset=hover_offset)
 controller_bedmd = PerturbedController(sys_bedmd,controller_bedmd,0.,const_offset=hover_thrust)
 
 # Simulate the system under closed loop control:
@@ -406,34 +440,25 @@ xs_cl_dmd, us_cl_dmd = quadrotor.simulate(x0_cl, controller_dmd, t_eval_cl)
 xs_cl_edmd, us_cl_edmd = quadrotor.simulate(x0_cl, controller_edmd, t_eval_cl)
 xs_cl_bedmd, us_cl_bedmd = quadrotor.simulate(x0_cl, controller_bedmd, t_eval_cl)
 
-#hover_cost = 2*hover_thrust**2*t_eval_cl.size
+Q_cost, R_cost = q_cl*np.eye(n), r_cl*np.eye(m)
+#hover_cost = np.sum(np.diag(ur_cl@R_cost@ur_cl.T))
 hover_cost = 0.
-mse_cl_dmd = np.linalg.norm(xs_cl_dmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
-mse_cl_edmd = np.linalg.norm(xs_cl_edmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
-mse_cl_bedmd = np.linalg.norm(xs_cl_bedmd[1:,:3]-xr_cl[:3,1:].T, ord='fro')**2
-ctrl_cost_dmd = np.linalg.norm(us_cl_dmd, ord='fro')**2
-ctrl_cost_edmd = np.linalg.norm(us_cl_edmd, ord='fro')**2
-ctrl_cost_bedmd = np.linalg.norm(us_cl_bedmd, ord='fro')**2
+cl_cost_dmd = np.sum(np.diag((xs_cl_dmd.T-xr_cl).T@Q_cost@(xs_cl_dmd.T-xr_cl)))+np.sum(np.diag(us_cl_dmd@R_cost@us_cl_dmd.T))
+cl_cost_edmd = np.sum(np.diag((xs_cl_edmd.T-xr_cl).T@Q_cost@(xs_cl_edmd.T-xr_cl)))+np.sum(np.diag(us_cl_edmd@R_cost@us_cl_edmd.T))
+cl_cost_bedmd = np.sum(np.diag((xs_cl_bedmd.T-xr_cl).T@Q_cost@(xs_cl_bedmd.T-xr_cl)))+np.sum(np.diag(us_cl_bedmd@R_cost@us_cl_bedmd.T))
 
-print('\nClosed loop performance statistics:')
-print(' -Tracking error:')
-print('   Tracking MSE DMD:   ', "{:.3f}".format(mse_cl_dmd),
-      '\n   Tracking MSE EDMD:  ', "{:.3f}".format(mse_cl_edmd),
-      '\n   Tracking MSE bEDMD: ', "{:.3f}".format(mse_cl_bedmd),
+print(' Closed loop quadratic cost:')
+print('   DMD:   ', "{:.3f}".format(cl_cost_dmd-hover_cost),
+      '\n   EDMD:  ', "{:.3f}".format(cl_cost_edmd-hover_cost),
+      '\n   bEDMD: ', "{:.3f}".format(cl_cost_bedmd-hover_cost),
       )
-print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(mse_cl_edmd)/(mse_cl_dmd))), ' %'
-      '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_dmd))), ' %'
-      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(mse_cl_bedmd)/(mse_cl_edmd))), ' %'
+print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(cl_cost_edmd-hover_cost)/(cl_cost_dmd-hover_cost))), ' %'
+      '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(cl_cost_bedmd-hover_cost)/(cl_cost_dmd-hover_cost))), ' %'
+      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(cl_cost_bedmd-hover_cost)/(cl_cost_edmd-hover_cost))), ' %'
       )
-print(' -Control effort:')
-print('   Control effort DMD:   ', "{:.3f}".format(ctrl_cost_dmd-hover_cost),
-      '\n   Control effort EDMD:  ', "{:.3f}".format(ctrl_cost_edmd-hover_cost),
-      '\n   Control effort bEDMD: ', "{:.3f}".format(ctrl_cost_bedmd-hover_cost),
-      )
-print('   Improvement DMD -> EDMD:   ', "{:.2f}".format(100*(1-(ctrl_cost_edmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
-      '\n   Improvement DMD -> bEDMD:  ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_dmd-hover_cost))), ' %'
-      '\n   Improvement EDMD -> bEDMD: ', "{:.2f}".format(100*(1-(ctrl_cost_bedmd-hover_cost)/(ctrl_cost_edmd-hover_cost))), ' %'
-      )
+
+print('Avg computation time bilinear MPC:', sum(controller_bedmd.nom_controller.comp_time)/len(controller_bedmd.nom_controller.comp_time), ' sec.')
+print('Avg controller frequency Bilinear MPC:', 1/(sum(controller_bedmd.nom_controller.comp_time)/len(controller_bedmd.nom_controller.comp_time)), ' hz.')
 
 def plot_paper(folder_name, show_plots=False):
     import matplotlib
@@ -500,6 +525,7 @@ def plot_paper(folder_name, show_plots=False):
     plt.grid()
 
     plt.subplot(3, 2, 2)
+    plt.plot(t_eval_cl[:-1], ur_cl[:, 0],'--r', linewidth=lw, label='Reference')
     plt.plot(t_eval_cl[:-1], us_cl_dmd[:, 0], linewidth=lw, label='DMD')
     plt.plot(t_eval_cl[:-1], us_cl_edmd[:, 0], linewidth=lw, label='EDMD')
     plt.plot(t_eval_cl[:-1], us_cl_bedmd[:, 0], linewidth=lw, label='bEDMD')
@@ -508,6 +534,7 @@ def plot_paper(folder_name, show_plots=False):
     plt.grid()
 
     plt.subplot(3, 2, 4)
+    plt.plot(t_eval_cl[:-1], ur_cl[:, 1], '--r', linewidth=lw, label='Reference')
     plt.plot(t_eval_cl[:-1], us_cl_dmd[:, 1], linewidth=lw, label='DMD')
     plt.plot(t_eval_cl[:-1], us_cl_edmd[:, 1], linewidth=lw, label='EDMD')
     plt.plot(t_eval_cl[:-1], us_cl_bedmd[:, 1], linewidth=lw, label='bEDMD')
