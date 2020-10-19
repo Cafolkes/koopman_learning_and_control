@@ -431,7 +431,7 @@ controller_edmd = MPCController(edmd_lin_sys, N_mpc, dt, umin, umax, xmin, xmax,
 controller_edmd = PerturbedController(sys_edmd,controller_edmd,0.,const_offset=hover_thrust)
 
 
-# Design feedback linearizing controller for bilinear EDMD model:
+# Design MPC controller for bilinear EDMD model:
 controller_bedmd = BilinearMPCController(sys_bedmd, N_mpc, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, Q_mpc, xr_cl, const_offset=hover_offset)
 controller_bedmd = PerturbedController(sys_bedmd,controller_bedmd,0.,const_offset=hover_thrust)
 

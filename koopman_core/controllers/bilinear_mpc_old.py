@@ -36,7 +36,6 @@ class BilinearMPCController(Controller):
             lifting {bool} -- flag to use state lifting (default: {False})
             edmd_object {edmd object} -- lifting object. It contains projection matrix and lifting function (default: {Edmd()})
         """
-        assert xr.ndim == 2, 'Reference trajectory has incompatible dimensions'
         Controller.__init__(self, bilinear_dynamics)
 
         # Load arguments
@@ -59,7 +58,8 @@ class BilinearMPCController(Controller):
         self.xmin=xmin
         self.xmax=xmax
         self.N = N
-        self.Nqd = self.q_d.shape[1]
+        if self.q_d.ndim == 2:
+            self.Nqd = self.q_d.shape[1]
 
         self.Q = Q
         self.QN = QN
@@ -99,7 +99,6 @@ class BilinearMPCController(Controller):
         offset_transform = np.zeros(self.nu * self.nx)
         for ii in range(self.nu):
             offset_transform[ii * self.nx] = self.const_offset[ii]
-        xr = self.q_d[:, :self.N + 1]
 
         # - quadratic objective
         CQC = sparse.csc_matrix(np.transpose(self.C).dot(self.Q.dot(self.C)))
@@ -110,10 +109,19 @@ class BilinearMPCController(Controller):
 
         # - linear objective
         self.QCT = np.transpose(self.Q.dot(self.C))
-        q = np.hstack(
-            [np.reshape(-self.QCT.dot(xr), ((self.N + 1) * self.nx,), order='F'),
-             np.tile(2 * self.R.dot(offset_transform), (self.N)),
-             slack_cost*np.ones(nslack_osqp)])
+        self.QNCT = np.transpose(self.QN.dot(self.C))
+        if (self.q_d.ndim == 1):
+            xr = self.q_d
+            q = np.hstack(
+                [np.kron(np.ones(self.N), -self.QCT.dot(xr)), -self.QNCT.dot(xr),
+                 np.tile(2 * self.R.dot(offset_transform), (self.N)),
+                 slack_cost * np.ones(nslack_osqp)])
+        elif (self.q_d.ndim == 2):
+            xr = self.q_d[:, :self.N + 1]
+            q = np.hstack(
+                [np.reshape(-self.QCT.dot(xr), ((self.N + 1) * self.nx,), order='F'),
+                 np.tile(2 * self.R.dot(offset_transform), (self.N)),
+                 slack_cost * np.ones(nslack_osqp)])
 
         return P, q
 
@@ -192,7 +200,7 @@ class BilinearMPCController(Controller):
                 Aineq = sparse.vstack([Aineq, np.hstack((Ax, Aw, As_pos, As_neg))])
                 lineq = np.hstack((lineq, -np.inf * np.ones(self.nx)))
                 uineq = np.hstack((uineq, np.zeros(self.nx)))
-
+        
         # Slack variables lower bound:
         for ii in range(self.N):
             for jj in range(self.nu):
@@ -251,14 +259,15 @@ class BilinearMPCController(Controller):
         tindex = int(np.ceil(t / self.dt))
 
         # Update the local reference trajectory
-        if (tindex + self.N) < self.Nqd:  # if we haven't reach the end of q_d yet
-            xr = self.q_d[:, tindex:tindex + self.N + 1]
-        else:  # we fill xr with copies of the last q_d
-            xr = np.hstack(
-                [self.q_d[:, tindex:], np.transpose(np.tile(self.q_d[:, -1], (self.N + 1 - self.Nqd + tindex, 1)))])
+        if self.q_d.ndim == 2:
+            if (tindex + self.N) < self.Nqd:  # if we haven't reach the end of q_d yet
+                xr = self.q_d[:, tindex:tindex + self.N + 1]
+            else:  # we fill xr with copies of the last q_d
+                xr = np.hstack(
+                    [self.q_d[:, tindex:], np.transpose(np.tile(self.q_d[:, -1], (self.N + 1 - self.Nqd + tindex, 1)))])
 
-        # Construct the new _osqp_q objects
-        self._osqp_q[:(self.N+1)*self.nx] = np.reshape(-self.QCT.dot(xr), ((self.N+1)*self.nx,), order='F')
+            # Construct the new _osqp_q objects
+            self._osqp_q[:(self.N+1)*self.nx] = np.reshape(-self.QCT.dot(xr), ((self.N+1)*self.nx,), order='F')
 
         # Lift the current state:
         z = self.dynamics.basis(x.reshape((1, -1))).squeeze()
@@ -276,7 +285,22 @@ class BilinearMPCController(Controller):
         return np.transpose(np.reshape(self._osqp_result.x[:(self.N + 1) * self.nx], (self.N + 1, self.nx)))
 
     def get_control_prediction(self):
-        return np.transpose(np.reshape(self._osqp_result.x[-self.N * self.nu:], (self.N, self.nu)))
+        nx_osqp = (self.N + 1) * self.nx
+        nu_osqp = self.N*self.nx*self.nu
+
+        z = self._osqp_result.x[:nx_osqp]
+        w = self._osqp_result.x[nx_osqp:nx_osqp+nu_osqp]
+        u = []
+        for ii in range(self.N):
+            z_tmp = z[ii*self.nx:(ii+1)*self.nx]
+            w_tmp = w[ii*self.nx*self.nu:(ii+1)*self.nx*self.nu]
+            if all(z_tmp == 0):
+                u.append(np.zeros(self.nu))
+            else:
+                z_inv = np.linalg.pinv(z_tmp.reshape(-1,1))
+                u.append(np.array([np.dot(z_inv,w_tmp[i*self.nx:(i+1)*self.nx]) for i in range(self.nu)]).squeeze())
+
+        return np.array(u).T
 
 
 
