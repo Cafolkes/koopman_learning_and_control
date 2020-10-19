@@ -276,31 +276,6 @@ koop_bilinear_sys = BilinearLiftedDynamics(n_koop, m, F, G, C, phi_fun)
 # In[8]:
 
 
-from matplotlib.pyplot import subplots, tight_layout, show
-from koopman_core.controllers.openloop_controller import OpenLoopController
-
-ol_controller = OpenLoopController(finite_dim_koop_sys, np.random.normal(size=(2,200)).T, np.arange(0,200)*dt)
-z0 = phi_fun(x0.reshape((1,-1)))
-xs, us = finite_dim_koop_sys.simulate(x0, ol_controller, np.arange(0,201)*dt)
-zs_koop, us_koop = koop_bilinear_sys.simulate(z0, ol_controller, np.arange(0,201)*dt)
-xs_koop = np.dot(C, zs_koop.T)
-
-_, axs = subplots(3, 2, figsize=(15, 6))
-ylabels = ['$q_1$', '$q_2$', '$\\dot{q}_1$', '$\\dot{q}_2$', '$u_1$', '$u_2$']
-
-for ax, data_fb, data_koop, ylabel in zip(axs.flatten(), np.vstack((xs[:-1,:].T, us.T)), np.vstack((xs_koop[:,:-1], us_koop.T)), ylabels):
-    ax.plot(np.arange(0,200)*dt, data_fb, linewidth=3, label='True system')
-    ax.plot(np.arange(0,200)*dt, data_koop, linewidth=3, label='KCT')
-    ax.set_ylabel(ylabel, fontsize=16)
-    ax.grid()
-    ax.set_xlabel('$t$ (sec)', fontsize=16)
-    ax.legend()
-    
-    
-tight_layout()
-show()
-
-
 # # Design model predictive controllers based on the bilinear model
 
 # In[9]:
@@ -325,13 +300,15 @@ show()
 
 
 from koopman_core.controllers import MPCController
+from koopman_core.dynamics import LinearLiftedDynamics
 
+z0 = phi_fun(x0.reshape((1,-1)))
 A_0 = koop_bilinear_sys.A
 B_0 = np.array([np.dot(b,z0) for b in koop_bilinear_sys.B]).T
 
-init_sys = LinearSystemDynamics(A_0, B_0)
+init_sys = LinearLiftedDynamics(A_0, B_0, C, koop_bilinear_sys.basis)
 
-controller_koop = MPCController(init_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, lifting=True, edmd_object=koop_bilinear_sys)
+controller_koop = MPCController(init_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
 controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()
