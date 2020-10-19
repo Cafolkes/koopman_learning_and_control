@@ -6,6 +6,4 @@ from .mpc_controller_lift_fp import MPCControllerFast
 from .openloop_controller import OpenLoopController
 from .perturbed_controller import PerturbedController
 from .bilinear_fb_lin_controller import BilinearFBLinController
-from .bilinear_mpc import BilinearMPCController
 from .nonlin_mpc_controller import NonlinMPCController
-from .bilinear_mpc_cvx import BilinearMPCControllerCvx

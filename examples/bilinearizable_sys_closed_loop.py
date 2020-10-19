@@ -137,13 +137,13 @@ mpc.set_param(**setup_mpc)
 mpc.set_objective(lterm=SX.zeros(1,1), mterm=model.aux['cost'])
 mpc.set_rterm(force=np.array([r, r]))
 
-#mpc.bounds['lower', '_x', 'x'] = xmin[:2]
-#mpc.bounds['lower', '_x', 'dx'] = xmin[2:]
-#mpc.bounds['upper', '_x', 'x'] = xmax[:2]
-#mpc.bounds['upper', '_x', 'dx'] = xmax[2:]
+mpc.bounds['lower', '_x', 'x'] = xmin[:2]
+mpc.bounds['lower', '_x', 'dx'] = xmin[2:]
+mpc.bounds['upper', '_x', 'x'] = xmax[:2]
+mpc.bounds['upper', '_x', 'dx'] = xmax[2:]
 
-#mpc.bounds['lower','_u','force'] = umin
-#mpc.bounds['upper', '_u', 'force'] = umax
+mpc.bounds['lower','_u','force'] = umin
+mpc.bounds['upper', '_u', 'force'] = umax
 
 mpc.setup()
 
@@ -324,11 +324,17 @@ show()
 # In[11]:
 
 
-from koopman_core.controllers import BilinearMPCControllerCvx
+from koopman_core.controllers import MPCController
 
-controller_koop = BilinearMPCControllerCvx(koop_bilinear_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
-xr_koop, ur_koop = controller_koop.gen_trajectory(x0,0.)
+A_0 = koop_bilinear_sys.A
+B_0 = np.array([np.dot(b,z0) for b in koop_bilinear_sys.B]).T
 
+init_sys = LinearSystemDynamics(A_0, B_0)
+
+controller_koop = MPCController(init_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, lifting=True, edmd_object=koop_bilinear_sys)
+controller_koop.eval(x0,0.)
+xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
+ur_koop = controller_koop.get_control_prediction()
 
 # In[12]:
 

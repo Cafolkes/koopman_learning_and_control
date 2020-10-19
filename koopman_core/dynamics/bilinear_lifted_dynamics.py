@@ -39,3 +39,6 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
 
     def act(self, x, t):
         return array([b@x for b in self.B]).T
+
+    def lift(self, x, u):
+        return self.basis(x)
