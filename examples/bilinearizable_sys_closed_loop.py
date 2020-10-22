@@ -69,10 +69,12 @@ linearized_sys = LinearSystemDynamics(A_lin, B_lin)
 
 # MPC parameters:
 umax = np.array([10., 10.])
+#umax = np.array([np.inf, np.inf])
 umin = -umax
 xmax = np.array([3., 6., 3., 3.])
+#xmax = np.array([np.inf, np.inf, np.inf, np.inf])
 xmin = -xmax
-q, r = 1e5, 1
+q, r = 1e4, 1
 Q_mpc = q*np.eye(n)
 R_mpc = r*np.eye(m)
 traj_length = 200
@@ -313,9 +315,29 @@ controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()
 
+from koopman_core.controllers import BilinearMPCController, BilinearMPCControllerCVX
+A_d = np.eye(n_koop) + koop_bilinear_sys.A*dt
+B_d = [b*dt for b in koop_bilinear_sys.B]
+kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous=False, dt=dt)
+controller_kbf = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+controller_kbf_cvx = BilinearMPCControllerCVX(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+
+z_init = np.tile(z0.reshape((-1,1)),(1,traj_length+1)).T
+u_init = np.zeros((m,traj_length)).T
+#zr_cl = np.array([koop_bilinear_sys.lift(x.reshape(1,-1),None) for x in xr_cl.T])
+#z_init = zr_cl
+#u_init = ur_cl.T
+
+controller_kbf.construct_controller(z_init, u_init)
+controller_kbf.solve_to_convergence(z0, 0., z_init, u_init, max_iter=20)
+xr_kbf = koop_bilinear_sys.C@controller_kbf.get_state_prediction().T
+ur_kbf = controller_kbf.get_control_prediction().T
+
+controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=20)
+xr_kbf_cvx = koop_bilinear_sys.C@controller_kbf_cvx.get_state_prediction().T
+ur_kbf_cvx = controller_kbf_cvx.get_control_prediction().T
+
 # In[12]:
-
-
 import matplotlib.pyplot as plt
 t_eval = np.arange(0,traj_length+1)*dt
 plot_inds = [0, 2, 1, 3, 0, 1]
@@ -328,7 +350,9 @@ for ii in range(6):
     if ii < 4:
         plt.subplot(3,2,ii+1)
         plt.plot(t_eval, xr_cl[ind,:], label='Nonlinear MPC')
-        plt.plot(t_eval, xr_koop[ind,:], label='Bilinear MPC')
+        plt.plot(t_eval, xr_koop[ind,:], label='Linear MPC')
+        plt.plot(t_eval, xr_kbf[ind, :], label='Bilinear MPC')
+        plt.plot(t_eval, xr_kbf_cvx[ind, :], label='Bilinear MPC cvx')
         plt.plot([0, 2.], [xmax[ind], xmax[ind]], ':k')
         plt.plot([0, 2.], [xmin[ind], xmin[ind]], ':k')
         plt.scatter(t_eval[0], x0[ind], color='g')
@@ -336,11 +360,13 @@ for ii in range(6):
         plt.ylabel(labels[ind])
         plt.grid()
         if ii==1:
-            plt.legend(loc='upper right', ncol=3)
+            plt.legend(loc='upper right', ncol=4)
     else:
         plt.subplot(3,2,ii+1)
         plt.plot(t_eval[:-1],ur_cl[ind,:])
         plt.plot(t_eval[:-1],ur_koop[ind,:])
+        plt.plot(t_eval[:-1], ur_kbf[ind, :])
+        plt.plot(t_eval[:-1], ur_kbf_cvx[ind, :])
         plt.plot([0, 2.], [umax[ind], umax[ind]], ':k')
         plt.plot([0, 2.], [umin[ind], umin[ind]], ':k')
         plt.ylabel(labels[ii])
@@ -353,9 +379,9 @@ plt.show()
 # In[14]:
 
 
-traj_cost_ref = xr_cl[:,-1].T@Q_mpc@xr_cl[:,-1] + np.sum(np.diag(ur_cl.T@R_mpc@ur_cl))
-traj_cost_koop = xr_koop[:,-1].T@Q_mpc@xr_koop[:,-1] + np.sum(np.diag(ur_koop.T@R_mpc@ur_koop))
-
+traj_cost_ref = (xr_cl[:,-1]-set_pt).T@Q_mpc@(xr_cl[:,-1]-set_pt) + np.sum(np.diag(ur_cl.T@R_mpc@ur_cl))
+traj_cost_koop = (xr_kbf[:,-1]-set_pt).T@Q_mpc@(xr_kbf[:,-1]-set_pt) + np.sum(np.diag(ur_kbf.T@R_mpc@ur_kbf))
+print(xr_kbf[:,-1])
 print('Closed loop quadratic cost:')
 print('   Ref:   ', "{:.3f}".format(traj_cost_ref),
       '\n   bEDMD: ', "{:.3f}".format(traj_cost_koop),
@@ -378,6 +404,9 @@ ol_controller_koop = OpenLoopController(finite_dim_koop_sys, ur_koop.T, t_eval[:
 xs_koop, us_koop = finite_dim_koop_sys.simulate(x0, ol_controller_koop, t_eval)
 xs_koop, us_koop = xs_koop.T, us_koop.T
 
+ol_controller_kbf= OpenLoopController(finite_dim_koop_sys, ur_kbf.T, t_eval[:-1])
+xs_kbf, us_kbf = finite_dim_koop_sys.simulate(x0, ol_controller_kbf, t_eval)
+xs_kbf, us_kbf = xs_kbf.T, us_kbf.T
 
 # In[16]:
 
@@ -389,7 +418,8 @@ for ii in range(6):
     if ii < 4:
         plt.subplot(3,2,ii+1)
         plt.plot(t_eval, xs_cl[ind,:], label='Nonlinear MPC')
-        plt.plot(t_eval, xs_koop[ind,:], label='Bilinear MPC')
+        plt.plot(t_eval, xs_koop[ind,:], label='Linear MPC')
+        plt.plot(t_eval, xs_kbf[ind, :], label='Bilinear MPC')
         plt.plot([0, 2.], [xmax[ind], xmax[ind]], ':k')
         plt.plot([0, 2.], [xmin[ind], xmin[ind]], ':k')
         plt.scatter(t_eval[0], x0[ind], color='g')
@@ -402,6 +432,7 @@ for ii in range(6):
         plt.subplot(3,2,ii+1)
         plt.plot(t_eval[:-1],us_cl[ind,:])
         plt.plot(t_eval[:-1],us_koop[ind,:])
+        plt.plot(t_eval[:-1], us_kbf[ind, :])
         plt.plot([0, 2.], [umax[ind], umax[ind]], ':k')
         plt.plot([0, 2.], [umin[ind], umin[ind]], ':k')
         plt.ylabel(labels[ii])

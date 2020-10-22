@@ -1,25 +1,22 @@
 import numpy as np
-import scipy.sparse as sparse
-from scipy.signal import cont2discrete
+from scipy import sparse
 import osqp
-import matplotlib.pyplot as plt
 from core.controllers.controller import Controller
+import time
 
 
-class MPCController(Controller):
+class BilinearMPCController(Controller):
     """
-    Class for controllers MPC.
+    Class for linear MPC with lifted linear dynamics.
 
-    MPCs are solved using osqp.
-
-    Use lifting=True to solve MPC in the lifted space
+    Quadratic programs are solved using OSQP.
     """
-    def __init__(self, linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, plotMPC=False, plotMPC_filename="",lifting=False, edmd_object=None, const_offset=None):
+    def __init__(self, lifted_bilinear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None):
         """__init__ Create an MPC controller
         
         Arguments:
-            linear_dynamics {dynamical sytem} -- it contains the A and B matrices in continous time
-            N {integer} -- number of timesteps
+            lifted_bilinear_dynamics {LinearLiftedDynamics} -- Lifted linear continuous-time dynamics
+            N {integer} -- MPC prediction horizon, number of timesteps
             dt {float} -- time step in seconds
             umin {numpy array [Nu,]} -- minimum control bound
             umax {numpy array [Nu,]} -- maximum control bound
@@ -29,122 +26,192 @@ class MPCController(Controller):
             R {numpy array [Nu,Nu]} -- control cost matrix
             QN {numpy array [Ns,]} -- final state cost
             xr {numpy array [Ns,]} -- reference trajectory
-        
-        Keyword Arguments:
-            plotMPC {bool} -- flag to plot results (default: {False})
-            plotMPC_filename {str} -- plotting filename (default: {""})
-            lifting {bool} -- flag to use state lifting (default: {False})
-            edmd_object {edmd object} -- lifting object. It contains projection matrix and lifting function (default: {Edmd()})
         """
 
-        Controller.__init__(self, linear_dynamics)
-
-        # Load arguments
-        Ac, Bc = linear_dynamics.linear_system()
-        [nx, nu] = Bc.shape
+        Controller.__init__(self, lifted_bilinear_dynamics)
+        self.dynamics_object = lifted_bilinear_dynamics
+        self.nx = self.dynamics_object.n
+        self.nu = self.dynamics_object.m
         self.dt = dt
-        #self._osqp_Ad = sparse.eye(nx)+Ac*self.dt
-        #self._osqp_Bd = Bc*self.dt
-        lin_model_d = cont2discrete((Ac,Bc,np.eye(nx),np.zeros((nu,1))),dt)
-        self._osqp_Ad = sparse.csc_matrix(lin_model_d[0])
-        self._osqp_Bd = sparse.csc_matrix(lin_model_d[1])
-        self.plotMPC = plotMPC
-        self.plotMPC_filename = plotMPC_filename
-        self.q_d = xr
-        
-        self.ns = xr.shape[0]
+        if self.dynamics_object.continuous:
+            pass
+        else:
+            self.A = self.dynamics_object.A
+            self.B = self.dynamics_object.B
+            assert self.dt == self.dynamics_object.dt
+        self.C = lifted_bilinear_dynamics.C
 
         self.Q = Q
-        self.lifting = lifting
+        self.QN = QN
+        self.R = R
+        self.N = N
+        self.xmin = xmin
+        self.xmax = xmax
+        self.umin = umin
+        self.umax = umax
 
-        self.nu = nu
-        self.nx = nx
         if const_offset is None:
-            self.const_offset = np.zeros(nu)
+            self.const_offset = np.zeros(self.nu)
         else:
             self.const_offset = const_offset
 
+        assert xr.ndim==1, 'Desired trajectory not supported'
+        self.xr = xr
+        self.ns = xr.shape[0]
+
         self.comp_time = []
+        self.iter_sol = []
 
-        # Total desired path
-        if self.q_d.ndim==2:
-            self.Nqd = self.q_d.shape[1]
-            xr = self.q_d[:,:N+1]
+    def construct_controller(self, z_init, u_init):
+        z0 = z_init[0,:]
+        #A_lst = [self.linearize_dynamics(z, z_next, u, None)[0] for z, z_next, u in zip(z_init[:-1, :], z_init[1:, :], u_init)]
+        #B_lst = [self.linearize_dynamics(z, z_next, u, None)[1] for z, z_next, u in zip(z_init[:-1, :], z_init[1:, :], u_init)]
+        #r_lst = [self.linearize_dynamics(z, z_next, u, None)[2] for z, z_next, u in zip(z_init[:-1, :], z_init[1:, :], u_init)]
+        A_lst = [np.ones((self.nx,self.nx)) for _ in range(self.N)]
+        B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
+        r_lst = [np.ones(self.nx) for _ in range(self.N)]
 
-        # Prediction horizon
-        self.N = N
-        x0 = np.zeros(nx)
+        self.construct_objective_(z_init, u_init)
+        self.construct_constraint_vecs_(z0, None, z_init, u_init, r_lst)
+        self.construct_constraint_matrix_(A_lst, B_lst)
 
-        
-        # Cast MPC problem to a QP: x = (x(0),x(1),...,x(N),u(0),...,u(N-1))
-        if (self.lifting):
-            # Load eDMD objects
-            self.C = edmd_object.C
-            self.edmd_object = edmd_object
-
-            # - quadratic objective
-            CQC  = sparse.csc_matrix(np.transpose(edmd_object.C).dot(Q.dot(edmd_object.C)))
-            CQNC = sparse.csc_matrix(np.transpose(edmd_object.C).dot(QN.dot(edmd_object.C)))
-            P = sparse.block_diag([sparse.kron(sparse.eye(N), CQC), CQNC,
-                                sparse.kron(sparse.eye(N), R)]).tocsc()
-
-            # - linear objective
-            QCT = np.transpose(Q.dot(edmd_object.C))
-            QNCT = np.transpose(QN.dot(edmd_object.C))
-            if (xr.ndim==1):
-                q = np.hstack([np.kron(np.ones(N), -QCT.dot(xr)), -QNCT.dot(xr), np.tile(2*R.dot(self.const_offset),(N))])
-            elif (xr.ndim==2):
-                q = np.hstack([np.reshape(-QCT.dot(xr),((N+1)*nx,),order='F'), np.tile(2*R.dot(self.const_offset),(N))])
-
-            # - input and state constraints
-            Aineq = sparse.block_diag([edmd_object.C for i in range(N+1)]+[np.eye(N*nu)])
-
-
-        else:
-            # - quadratic objective
-            P = sparse.block_diag([sparse.kron(sparse.eye(N), Q), QN,
-                                sparse.kron(sparse.eye(N), R)]).tocsc()
-            # - linear objective
-            if (xr.ndim==1):
-                q = np.hstack([np.kron(np.ones(N), -Q.dot(xr)), -QN.dot(xr), np.tile(2*R.dot(self.const_offset),(N))])
-            elif (xr.ndim==2):
-                q = np.hstack([np.reshape(-Q.dot(xr),((N+1)*nx,),order='F'), np.tile(2*R.dot(self.const_offset),(N))])
-
-            # - input and state constraints
-            Aineq = sparse.eye((N+1)*nx + N*nu)
-
-        # - linear dynamics
-        Ax = sparse.kron(sparse.eye(N+1),-sparse.eye(nx)) + sparse.kron(sparse.eye(N+1, k=-1), self._osqp_Ad)
-        Bu = sparse.kron(sparse.vstack([sparse.csc_matrix((1, N)), sparse.eye(N)]), self._osqp_Bd)
-        Aeq = sparse.hstack([Ax, Bu])
-        leq = np.hstack([-x0, np.zeros(N*nx)])
-
-        lineq = np.hstack([np.kron(np.ones(N+1), xmin), np.kron(np.ones(N), umin)])
-        uineq = np.hstack([np.kron(np.ones(N+1), xmax), np.kron(np.ones(N), umax)])
-
-        ueq = leq
-        self._osqp_q = q
-
-        A = sparse.vstack([Aeq, Aineq]).tocsc()
-        self._osqp_l = np.hstack([leq, lineq])
-        self._osqp_u = np.hstack([ueq, uineq])
-
-        # Create an OSQP object
+        # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
+        self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u, warm_start=True, verbose=False)
 
-        # Setup workspace
-        self.prob.setup(P, q, A, self._osqp_l, self._osqp_u, warm_start=True, verbose=False)
+    def linearize_dynamics(self, z0, z1, u0, t):
+        A_lin = self.A + np.sum(np.array([b*u for b,u in zip(self.B, u0)]),axis=0)
+        B_lin = np.array([b @ z0 for b in self.B]).T
 
-        if self.plotMPC:
-            # Figure to plot MPC thoughts
-            self.fig, self.axs = plt.subplots(self.ns+self.nu)
-            ylabels = ['$x$', '$\\theta$', '$\\dot{x}$', '$\\dot{\\theta}$']
-            for ii in range(self.ns):
-                self.axs[ii].set(xlabel='Time(s)',ylabel=ylabels[ii])
-                self.axs[ii].grid()
-            for ii in range(self.ns,self.ns+self.nu):
-                self.axs[ii].set(xlabel='Time(s)',ylabel='u')
-                self.axs[ii].grid()
+        if z1 is None:
+            z1 = A_lin@z0 + B_lin@u0
+
+        f_d = self.dynamics_object.drift(z0, t) + np.dot(self.dynamics_object.act(z0,t),u0)
+        r_lin = f_d - z1
+
+        return A_lin, B_lin, r_lin
+
+    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
+        iter = 0
+        self.cur_z = z_init_0
+        self.cur_u = u_init_0
+        u_prev = np.zeros_like(u_init_0)
+
+        while (iter == 0 or np.linalg.norm(u_prev-self.cur_u) > eps) and iter < max_iter:
+            u_prev = self.cur_u.copy()
+            z_init = self.cur_z.copy()
+            u_init = self.cur_u.copy()
+
+            # Update equality constraint matrices:
+            A_lst = [self.linearize_dynamics(z, z_next, u, None)[0] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
+            B_lst = [self.linearize_dynamics(z, z_next, u, None)[1] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
+            r_lst = [self.linearize_dynamics(z, z_next, u, None)[2] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
+
+            # Solve MPC Instance
+            tf_c = 0
+            #if iter > 0:
+            #    t0_c = time.time()
+                #self.construct_controller(z_init, u_init)
+                #self.update_controller_(z, None, z_init, u_init, A_lst, B_lst, r_lst)
+            #    tf_c = time.time()-t0_c
+            self.update_objective_(z_init, u_init)
+            self.construct_constraint_vecs_(z, None, z_init, u_init, r_lst)
+            self.update_constraint_matrix_(A_lst, B_lst)
+
+            #self.construct_constraints_(z, t, z_init, u_init, A_lst, B_lst, r_lst)
+
+            t0_s = time.time()
+            dz, du = self.solve_mpc_(z, t, z_init, u_init, A_lst, B_lst, r_lst)
+            tf_s = time.time()-t0_s
+            self.cur_z = z_init + dz.T
+            self.cur_u = u_init + du.T
+
+            iter += 1
+            print('OSQP ', iter,': ', np.linalg.norm(u_prev-self.cur_u), 'Construct t: ', tf_c, 'Solve t: ', tf_s)
+
+    def solve_mpc_(self, z, t, z_init, u_init, A_lst, B_lst, r_lst):
+        self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
+        res = self.prob.solve()
+        dz = res.x[:(self.N+1)*self.nx].reshape(self.nx,self.N+1, order='F')
+        du = res.x[(self.N+1)*self.nx:].reshape(self.nu,self.N, order='F')
+
+        return dz, du
+
+    def construct_objective_(self, z_init, u_init):
+        # Quadratic objective:
+        self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
+                                          self.C.T @ self.QN @ self.C,
+                                          sparse.kron(sparse.eye(self.N), self.R)], format='csc')
+
+        # Linear objective:
+        self._osqp_q = np.hstack(
+            [(self.C.T @ self.Q@(self.C@z_init[:-1,:].T-self.xr.reshape(-1,1))).flatten(order='F'),
+             self.C.T @ self.QN@(self.C@z_init[-1,:] - self.xr),
+             (self.R@u_init.T).flatten(order='F')])
+
+    def construct_constraint_matrix_(self, A_lst, B_lst):
+        # Linear dynamics constraints:
+        A_dyn = sparse.vstack((sparse.csc_matrix((self.nx,(self.N+1)*self.nx)),
+                               sparse.hstack((sparse.block_diag(A_lst), sparse.csc_matrix((self.N*self.nx,self.nx))))))
+        Ax = -sparse.eye((self.N+1)*self.nx) + A_dyn
+        Bu = sparse.vstack((sparse.csc_matrix((self.nx,self.N*self.nu)),
+                            sparse.block_diag(B_lst)))
+        Aeq = sparse.hstack([Ax, Bu])
+
+        # Input constraints:
+        Aineq_u = sparse.hstack([sparse.csc_matrix((self.N*self.nu,(self.N+1)*self.nx)), sparse.eye(self.N*self.nu)])
+
+        # State constraints:
+        Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N+1),self.C), sparse.csc_matrix(((self.N+1)*self.ns, self.N*self.nu))])
+
+        self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
+        self._osqp_A_idx = self._osqp_A.indices.copy()
+        self._osqp_A_data = None
+
+    def construct_constraint_vecs_(self, z, t, z_init, u_init, r_lst):
+        dz0 = z - z_init[0, :]
+        r_vec = np.array(r_lst).flatten()
+        leq = np.hstack([-dz0, -r_vec])
+        ueq = leq
+
+        # Input constraints:
+        lineq_u = np.tile(self.umin, self.N) - u_init.flatten()
+        uineq_u = np.tile(self.umax, self.N) - u_init.flatten()
+
+        # State constraints:
+        lineq_x = np.tile(self.xmin, self.N + 1) - (self.C @ z_init.T).flatten(order='F')
+        uineq_x = np.tile(self.xmax, self.N + 1) - (self.C @ z_init.T).flatten(order='F')
+
+        self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
+        self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
+
+    def update_objective_(self, z_init, u_init):
+        self._osqp_q = np.hstack(
+            [(self.C.T @ self.Q @ (self.C @ z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
+             self.C.T @ self.QN @ (self.C @ z_init[-1, :] - self.xr),
+             (self.R @ u_init.T).flatten(order='F')])
+
+    def update_constraint_matrix_(self, A_lst, B_lst):
+        '''Manually build csc_matrix.data array'''
+        # State variables:
+        data = []
+        C_test = [self.C[np.nonzero(self.C[:,i]),i].squeeze().tolist() for i in range(self.nx)]
+        for t in range(self.N):
+            for i in range(self.nx):
+                data.append(np.hstack((-np.ones(1), A_lst[t][:,i], np.array(C_test[i]))))
+
+        for i in range(self.nx):
+            data.append(np.hstack((-np.ones(1), np.array(C_test[i]))))
+
+        for t in range(self.N):
+            for i in range(self.nu):
+                data.append(np.hstack((B_lst[t][:,i], np.ones(1))))
+
+        flat_data = []
+        for arr in data:
+            for d in arr:
+                flat_data.append(d)
+        self._osqp_A_data = np.array(flat_data)
 
     def eval(self, x, t):
         """eval Function to evaluate controller
@@ -156,118 +223,10 @@ class MPCController(Controller):
         Returns:
             control action -- numpy array [Nu,]
         """
+        pass
 
-        N = self.N
-        nu = self.nu
-        nx = self.nx
-
-        tindex = int(t/self.dt)
-        #print("iteration {}".format(tindex))
-        
-        ## Update inequalities
-        if self.q_d.ndim==2:
-            # Update the local reference trajectory
-            if (tindex+N) < self.Nqd: # if we haven't reach the end of q_d yet
-                xr = self.q_d[:,tindex:tindex+N+1]
-            else: # we fill xr with copies of the last q_d
-                xr = np.hstack( [self.q_d[:,tindex:],np.transpose(np.tile(self.q_d[:,-1],(N+1-self.Nqd+tindex,1)))])
-
-            # Construct the new _osqp_q objects
-            if (self.lifting):
-                QCT = np.transpose(self.Q.dot(self.C))                        
-                self._osqp_q = np.hstack([np.reshape(-QCT.dot(xr),((N+1)*nx,),order='F'), np.zeros(N*nu)])                    
-            else:
-                self._osqp_q = np.hstack([np.reshape(-self.Q.dot(xr),((N+1)*nx,),order='F'), np.zeros(N*nu)])
-        elif self.q_d.ndim==1:
-            # Update the local reference trajectory
-            xr = np.transpose(np.tile(self.q_d,N+1))
-
-        # Lift the current state if necessary
-        if (self.lifting): 
-            x = self.edmd_object.lift(x.reshape((1,-1)), None).squeeze()
-        
-        self._osqp_l[:self.nx] = -x
-        self._osqp_u[:self.nx] = -x
-
-        self.prob.update(q=self._osqp_q, l=self._osqp_l, u=self._osqp_u)
-
-        ## Solve MPC Instance
-        self._osqp_result = self.prob.solve()
-        self.comp_time.append(self._osqp_result.info.run_time)
-
-        # Check solver status
-        #if self._osqp_result.info.status != 'solved':
-        #    raise ValueError('OSQP did not solve the problem!')
-
-        if self.plotMPC:
-            self.plot_MPC(t, xr, tindex)
-        return self._osqp_result.x[-N*nu:-(N-1)*nu]
-
-    def parse_result(self):
-        return  np.transpose(np.reshape( self._osqp_result.x[:(self.N+1)*self.nx], (self.N+1,self.nx)))
+    def get_state_prediction(self):
+        return self.cur_z
 
     def get_control_prediction(self):
-        return np.transpose(np.reshape( self._osqp_result.x[-self.N*self.nu:], (self.N,self.nu)))
-
-    def plot_MPC(self, current_time, xr, tindex):
-        """plot mpc
-        
-       
-        - current_time (float): time now
-        - xr (2darray [N,ns]): local reference trajectory
-        - tindex (int): index of the current time
-        """
-
-
-        # Unpack OSQP results
-        nu = self.nu
-        nx = self.nx
-        N = self.N
-
-        osqp_sim_state = np.transpose(np.reshape( self._osqp_result.x[:(N+1)*nx], (N+1,nx)))
-        osqp_sim_forces = np.transpose(np.reshape( self._osqp_result.x[-N*nu:], (N,nu)))
-
-        if self.lifting:
-            osqp_sim_state = np.dot(self.C,osqp_sim_state)
-
-        # Plot
-        pos = current_time/(self.Nqd*self.dt) # position along the trajectory
-        time = np.linspace(current_time,current_time+N*self.dt,num=N+1)
-        timeu = np.linspace(current_time,current_time+N*self.dt,num=N)
-
-        
-        for ii in range(self.ns):
-            if (tindex==0):
-                self.axs[ii].plot(time,osqp_sim_state[ii,:],color=[0,1-pos,pos],label='x_0')
-            elif (tindex==self.Nqd-2):
-                self.axs[ii].plot(time,osqp_sim_state[ii,:],color=[0,1-pos,pos],label='x_f')
-            else:
-                self.axs[ii].plot(time,osqp_sim_state[ii,:],color=[0,1-pos,pos])
-        for ii in range(self.nu):
-            self.axs[ii+self.ns].plot(timeu,osqp_sim_forces[ii,:],color=[0,1-pos,pos])
-            
-    def finish_plot(self, x, u, u_pd, time_vector, filename):
-        """
-        Call this function to plot extra lines.
-
-        - x: state, numpy 2darray [Nqd,n] 
-        - u, input from this controller [Nqd-1,n] 
-        - u_pd, input from a PD controller [Nqd-1,n] 
-        - time_vector, 1d array [Nqd
-        - filename, string
-        """
-        self.fig.suptitle(filename[:-4], fontsize=16)
-        for ii in range(self.ns):
-            self.axs[ii].plot(time_vector, self.q_d[ii,:], linewidth=2, label='$x_d$', color=[1,0,0])
-            self.axs[ii].plot(time_vector, x[ii,:], linewidth=2, label='$x$', color=[0,0,0])
-            self.axs[ii].legend(fontsize=10, loc='best')
-        for ii in range(self.nu):
-            self.axs[ii+self.ns].plot(time_vector[:-1],u[ii,:],label='$u$',color=[0,0,0])
-            self.axs[ii+self.ns].plot(time_vector[:-1],u_pd[ii,:],label='$u_{PD}$',color=[0,1,1])
-            self.axs[ii+self.ns].legend(fontsize=10, loc='best')
-        self.fig.savefig(filename)
-        #plt.close(self.fig)
-
-
-
- 
+        return self.cur_u

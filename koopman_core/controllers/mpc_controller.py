@@ -31,12 +31,17 @@ class MPCController(Controller):
         Controller.__init__(self, lifted_linear_dynamics)
         self.dynamics_object = lifted_linear_dynamics
         self.dt = dt
-        Ac = lifted_linear_dynamics.A
-        Bc = lifted_linear_dynamics.B
-        [self.nx, self.nu] = Bc.shape
-        lin_model_d = cont2discrete((Ac,Bc,np.eye(self.nx),np.zeros((self.nu,1))),dt)
-        self._osqp_Ad = sparse.csc_matrix(lin_model_d[0])
-        self._osqp_Bd = sparse.csc_matrix(lin_model_d[1])
+        if lifted_linear_dynamics.continuous:
+            Ac = lifted_linear_dynamics.A
+            Bc = lifted_linear_dynamics.B
+            [self.nx, self.nu] = Bc.shape
+            lin_model_d = cont2discrete((Ac,Bc,np.eye(self.nx),np.zeros((self.nu,1))),dt)
+            self._osqp_Ad = sparse.csc_matrix(lin_model_d[0])
+            self._osqp_Bd = sparse.csc_matrix(lin_model_d[1])
+        else:
+            self._osqp_Ad = lifted_linear_dynamics.A
+            self._osqp_Bd = lifted_linear_dynamics.B
+            [self.nx, self.nu] = self._osqp_Bd.shape
         self.C = lifted_linear_dynamics.C
 
         self.Q = Q
@@ -99,11 +104,12 @@ class MPCController(Controller):
         Bu = sparse.kron(sparse.vstack([sparse.csc_matrix((1, self.N)), sparse.eye(self.N)]), self._osqp_Bd)
         Aeq = sparse.hstack([Ax, Bu])
         leq = np.hstack([-x0, np.zeros(self.N*self.nx)])
+        ueq = leq
 
         lineq = np.hstack([np.kron(np.ones(self.N+1), self.xmin), np.kron(np.ones(self.N), self.umin)])
         uineq = np.hstack([np.kron(np.ones(self.N+1), self.xmax), np.kron(np.ones(self.N), self.umax)])
 
-        ueq = leq
+
 
         self._osqp_A = sparse.vstack([Aeq, Aineq]).tocsc()
         self._osqp_l = np.hstack([leq, lineq])
