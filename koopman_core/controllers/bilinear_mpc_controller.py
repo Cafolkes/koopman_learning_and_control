@@ -74,10 +74,12 @@ class BilinearMPCController(Controller):
         self.construct_objective_(z_init, u_init)
         self.construct_constraint_vecs_(z0, None, z_init, u_init, r_lst)
         self.construct_constraint_matrix_(A_lst, B_lst)
+        self.construct_constraint_matrix_data_(A_lst, B_lst)
 
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
-        self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u, warm_start=True, verbose=False)
+        self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
+                        warm_start=True, verbose=False, polish=True, max_iter=1000)
 
     def linearize_dynamics(self, z0, z1, u0, t):
         A_lin = self.A + np.sum(np.array([b*u for b,u in zip(self.B, u0)]),axis=0)
@@ -108,17 +110,12 @@ class BilinearMPCController(Controller):
             r_lst = [self.linearize_dynamics(z, z_next, u, None)[2] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
 
             # Solve MPC Instance
-            tf_c = 0
-            #if iter > 0:
-            #    t0_c = time.time()
-                #self.construct_controller(z_init, u_init)
-                #self.update_controller_(z, None, z_init, u_init, A_lst, B_lst, r_lst)
-            #    tf_c = time.time()-t0_c
+
+            t0_c = time.time()
             self.update_objective_(z_init, u_init)
             self.construct_constraint_vecs_(z, None, z_init, u_init, r_lst)
-            self.update_constraint_matrix_(A_lst, B_lst)
-
-            #self.construct_constraints_(z, t, z_init, u_init, A_lst, B_lst, r_lst)
+            self.update_constraint_matrix_data_(A_lst, B_lst)
+            tf_c = time.time() - t0_c
 
             t0_s = time.time()
             dz, du = self.solve_mpc_(z, t, z_init, u_init, A_lst, B_lst, r_lst)
@@ -131,9 +128,9 @@ class BilinearMPCController(Controller):
 
     def solve_mpc_(self, z, t, z_init, u_init, A_lst, B_lst, r_lst):
         self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
-        res = self.prob.solve()
-        dz = res.x[:(self.N+1)*self.nx].reshape(self.nx,self.N+1, order='F')
-        du = res.x[(self.N+1)*self.nx:].reshape(self.nu,self.N, order='F')
+        self.res = self.prob.solve()
+        dz = self.res.x[:(self.N+1)*self.nx].reshape(self.nx,self.N+1, order='F')
+        du = self.res.x[(self.N+1)*self.nx:].reshape(self.nu,self.N, order='F')
 
         return dz, du
 
@@ -165,8 +162,6 @@ class BilinearMPCController(Controller):
         Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N+1),self.C), sparse.csc_matrix(((self.N+1)*self.ns, self.N*self.nu))])
 
         self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
-        self._osqp_A_idx = self._osqp_A.indices.copy()
-        self._osqp_A_data = None
 
     def construct_constraint_vecs_(self, z, t, z_init, u_init, r_lst):
         dz0 = z - z_init[0, :]
@@ -191,27 +186,44 @@ class BilinearMPCController(Controller):
              self.C.T @ self.QN @ (self.C @ z_init[-1, :] - self.xr),
              (self.R @ u_init.T).flatten(order='F')])
 
-    def update_constraint_matrix_(self, A_lst, B_lst):
+    def construct_constraint_matrix_data_(self, A_lst, B_lst):
         '''Manually build csc_matrix.data array'''
+        C_data = [np.atleast_1d(self.C[np.nonzero(self.C[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
+
         # State variables:
         data = []
-        C_test = [self.C[np.nonzero(self.C[:,i]),i].squeeze().tolist() for i in range(self.nx)]
+        A_inds = []
+        start_ind_A = 1
         for t in range(self.N):
             for i in range(self.nx):
-                data.append(np.hstack((-np.ones(1), A_lst[t][:,i], np.array(C_test[i]))))
+                data.append(np.hstack((-np.ones(1), A_lst[t][:,i], np.array(C_data[i]))))
+                A_inds.append(np.arange(start_ind_A, start_ind_A+self.nx))
+                start_ind_A += self.nx + 1 + len(C_data[i])
 
         for i in range(self.nx):
-            data.append(np.hstack((-np.ones(1), np.array(C_test[i]))))
+            data.append(np.hstack((-np.ones(1), np.array(C_data[i]))))
 
+        # Input variables:
+        B_inds = []
+        start_ind_B = start_ind_A + self.nx + np.nonzero(self.C)[0].size - 1
         for t in range(self.N):
             for i in range(self.nu):
                 data.append(np.hstack((B_lst[t][:,i], np.ones(1))))
+                B_inds.append(np.arange(start_ind_B, start_ind_B + self.nx))
+                start_ind_B += self.nx + 1
 
         flat_data = []
         for arr in data:
             for d in arr:
                 flat_data.append(d)
+
         self._osqp_A_data = np.array(flat_data)
+        self._osqp_A_data_A_inds = np.array(A_inds).flatten().tolist()
+        self._osqp_A_data_B_inds = np.array(B_inds).flatten().tolist()
+
+    def update_constraint_matrix_data_(self, A_lst, B_lst):
+        self._osqp_A_data[self._osqp_A_data_A_inds] = np.hstack(A_lst).flatten(order='F')
+        self._osqp_A_data[self._osqp_A_data_B_inds] = np.hstack(B_lst).flatten(order='F')
 
     def eval(self, x, t):
         """eval Function to evaluate controller

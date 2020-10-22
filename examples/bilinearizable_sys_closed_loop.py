@@ -329,11 +329,11 @@ u_init = np.zeros((m,traj_length)).T
 #u_init = ur_cl.T
 
 controller_kbf.construct_controller(z_init, u_init)
-controller_kbf.solve_to_convergence(z0, 0., z_init, u_init, max_iter=20)
+controller_kbf.solve_to_convergence(z0, 0., z_init, u_init, max_iter=100)
 xr_kbf = koop_bilinear_sys.C@controller_kbf.get_state_prediction().T
 ur_kbf = controller_kbf.get_control_prediction().T
 
-controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=20)
+controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=100)
 xr_kbf_cvx = koop_bilinear_sys.C@controller_kbf_cvx.get_state_prediction().T
 ur_kbf_cvx = controller_kbf_cvx.get_control_prediction().T
 
