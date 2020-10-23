@@ -18,6 +18,7 @@
 
 import numpy as np
 import sys
+import sympy as sym
 sys.path.append('../../../')
 
 
@@ -45,6 +46,34 @@ class FiniteDimKoopSys(RoboticDynamics):
     
     def B(self, q):
         return np.array([[1, 0], [0, 1]])
+
+class FiniteDimKoopSysDiscrete(FiniteDimKoopSys):
+    def __init__(self, lambd, mu, c, dt):
+        FiniteDimKoopSys.__init__(self, lambd, mu, c)
+        self.dt = dt
+
+    def eval_dot(self, x, u, t):
+        return x + self.dt*self.drift(x, t) + self.dt*np.dot(self.act(x, t),u)
+
+    def get_linearization(self, x0, x1, u0, t):
+        lambd, mu, c = self.params
+        A_lin = np.eye(self.n) + self.dt*np.array([[0, 0, 1, 0],
+                                            [0, 0, 0, 1],
+                                            [0, 0, lambd, 0],
+                                            [u0[1], 0, 2*(2*lambd-mu)*c*x0[2], mu]])
+
+        B_lin = self.dt*np.array([[0, 0],
+                          [0, 0],
+                          [1, 0],
+                          [0, x0[0]+1]])
+
+        if x1 is None:
+            x1 = A_lin@x0 + B_lin@u0
+
+        f_d = self.eval_dot(x0,u0,t)
+        r_lin = f_d - x1
+
+        return A_lin, B_lin, r_lin
 
 n, m = 4, 2
 lambd, mu, c = .3, .2, -.5
@@ -74,7 +103,7 @@ umin = -umax
 xmax = np.array([3., 6., 3., 3.])
 #xmax = np.array([np.inf, np.inf, np.inf, np.inf])
 xmin = -xmax
-q, r = 1e4, 1
+q, r = 1e3, 1
 Q_mpc = q*np.eye(n)
 R_mpc = r*np.eye(m)
 traj_length = 200
@@ -315,11 +344,11 @@ controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()
 
-from koopman_core.controllers import BilinearMPCController, BilinearMPCControllerCVX
+from koopman_core.controllers import BilinearMPCController, BilinearMPCControllerCVX, NonlinearMPCController
 A_d = np.eye(n_koop) + koop_bilinear_sys.A*dt
 B_d = [b*dt for b in koop_bilinear_sys.B]
 kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous=False, dt=dt)
-controller_kbf = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+controller_kbf = NonlinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, terminal_constraint=True)
 controller_kbf_cvx = BilinearMPCControllerCVX(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
 
 z_init = np.tile(z0.reshape((-1,1)),(1,traj_length+1)).T
@@ -333,9 +362,20 @@ controller_kbf.solve_to_convergence(z0, 0., z_init, u_init, max_iter=100)
 xr_kbf = koop_bilinear_sys.C@controller_kbf.get_state_prediction().T
 ur_kbf = controller_kbf.get_control_prediction().T
 
-controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=100)
+controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=1)
 xr_kbf_cvx = koop_bilinear_sys.C@controller_kbf_cvx.get_state_prediction().T
 ur_kbf_cvx = controller_kbf_cvx.get_control_prediction().T
+
+finite_dim_koop_sys_d = FiniteDimKoopSysDiscrete(lambd, mu, c, dt)
+controller_nmpc = NonlinearMPCController(finite_dim_koop_sys_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+x_init = np.tile(x0.reshape((-1,1)),(1,traj_length+1)).T
+controller_nmpc.construct_controller(x_init, u_init)
+controller_nmpc.solve_to_convergence(x0, 0., x_init, u_init, max_iter=100)
+xr_nmpc = controller_nmpc.get_state_prediction().T
+ur_nmpc = controller_nmpc.get_control_prediction().T
+
+print('Number of SQP iterations Koopman NMPC: ', len(controller_kbf.x_iter))
+print('Number of SQP iterations NMPC: ', len(controller_nmpc.x_iter))
 
 # In[12]:
 import matplotlib.pyplot as plt
@@ -349,7 +389,7 @@ for ii in range(6):
     ind = plot_inds[ii]
     if ii < 4:
         plt.subplot(3,2,ii+1)
-        plt.plot(t_eval, xr_cl[ind,:], label='Nonlinear MPC')
+        plt.plot(t_eval, xr_nmpc[ind,:], label='Nonlinear MPC')
         plt.plot(t_eval, xr_koop[ind,:], label='Linear MPC')
         plt.plot(t_eval, xr_kbf[ind, :], label='Bilinear MPC')
         plt.plot(t_eval, xr_kbf_cvx[ind, :], label='Bilinear MPC cvx')
@@ -363,7 +403,7 @@ for ii in range(6):
             plt.legend(loc='upper right', ncol=4)
     else:
         plt.subplot(3,2,ii+1)
-        plt.plot(t_eval[:-1],ur_cl[ind,:])
+        plt.plot(t_eval[:-1],ur_nmpc[ind,:])
         plt.plot(t_eval[:-1],ur_koop[ind,:])
         plt.plot(t_eval[:-1], ur_kbf[ind, :])
         plt.plot(t_eval[:-1], ur_kbf_cvx[ind, :])
@@ -396,9 +436,9 @@ print('\n   Relative increased cost Ref -> koop:  ', "{:.2f}".format(100*((traj_
 
 
 from koopman_core.controllers import OpenLoopController
-ol_controller = OpenLoopController(finite_dim_koop_sys, ur_cl.T, t_eval[:-1])
-xs_cl, us_cl = finite_dim_koop_sys.simulate(x0, ol_controller, t_eval)
-xs_cl, us_cl = xs_cl.T, us_cl.T
+ol_controller = OpenLoopController(finite_dim_koop_sys, ur_nmpc.T, t_eval[:-1])
+xs_nmpc, us_nmpc = finite_dim_koop_sys.simulate(x0, ol_controller, t_eval)
+xs_nmpc, us_nmpc = xs_nmpc.T, us_nmpc.T
 
 ol_controller_koop = OpenLoopController(finite_dim_koop_sys, ur_koop.T, t_eval[:-1])
 xs_koop, us_koop = finite_dim_koop_sys.simulate(x0, ol_controller_koop, t_eval)
@@ -417,7 +457,7 @@ for ii in range(6):
     ind = plot_inds[ii]
     if ii < 4:
         plt.subplot(3,2,ii+1)
-        plt.plot(t_eval, xs_cl[ind,:], label='Nonlinear MPC')
+        plt.plot(t_eval, xs_nmpc[ind,:], label='Nonlinear MPC')
         plt.plot(t_eval, xs_koop[ind,:], label='Linear MPC')
         plt.plot(t_eval, xs_kbf[ind, :], label='Bilinear MPC')
         plt.plot([0, 2.], [xmax[ind], xmax[ind]], ':k')
@@ -430,7 +470,7 @@ for ii in range(6):
             plt.legend(loc='upper right', ncol=2)
     else:
         plt.subplot(3,2,ii+1)
-        plt.plot(t_eval[:-1],us_cl[ind,:])
+        plt.plot(t_eval[:-1],us_nmpc[ind,:])
         plt.plot(t_eval[:-1],us_koop[ind,:])
         plt.plot(t_eval[:-1], us_kbf[ind, :])
         plt.plot([0, 2.], [umax[ind], umax[ind]], ':k')

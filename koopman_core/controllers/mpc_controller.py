@@ -11,7 +11,7 @@ class MPCController(Controller):
 
     Quadratic programs are solved using OSQP.
     """
-    def __init__(self, lifted_linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, q_d, const_offset=None):
+    def __init__(self, lifted_linear_dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, q_d, const_offset=None, terminal_constraint=False):
         """__init__ Create an MPC controller
         
         Arguments:
@@ -64,6 +64,7 @@ class MPCController(Controller):
         if self.q_d.ndim==2:
             # Add copies of the final state in the desired trajectory to enable prediction beyond trajectory horizon:
             self.q_d = np.hstack([self.q_d, np.transpose(np.tile(self.q_d[:, -1], (self.N + 1, 1)))])
+        self.terminal_constraint = terminal_constraint
 
         # Initialize OSQP MPC Problem:
         self.build_objective_()
@@ -109,6 +110,9 @@ class MPCController(Controller):
         lineq = np.hstack([np.kron(np.ones(self.N+1), self.xmin), np.kron(np.ones(self.N), self.umin)])
         uineq = np.hstack([np.kron(np.ones(self.N+1), self.xmax), np.kron(np.ones(self.N), self.umax)])
 
+        if self.terminal_constraint:
+            lineq[-self.ns-self.N*self.nu:-self.N*self.nu] = self.q_d
+            uineq[-self.ns-self.N*self.nu:-self.N*self.nu] = self.q_d
 
 
         self._osqp_A = sparse.vstack([Aeq, Aineq]).tocsc()

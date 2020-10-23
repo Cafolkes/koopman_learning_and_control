@@ -12,7 +12,7 @@ class NonlinearMPCController(Controller):
 
     Quadratic programs are solved using OSQP.
     """
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None):
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None, terminal_constraint=False):
         """__init__ Create an MPC controller
         
         Arguments:
@@ -56,6 +56,7 @@ class NonlinearMPCController(Controller):
         assert xr.ndim==1, 'Desired trajectory not supported'
         self.xr = xr
         self.ns = xr.shape[0]
+        self.terminal_constraint = terminal_constraint
 
         self.comp_time = []
         self.x_iter = []
@@ -100,9 +101,9 @@ class NonlinearMPCController(Controller):
             self.update_constraint_matrix_data_(A_lst, B_lst)
 
             dz, du = self.solve_mpc_()
-            alpha = min((iter+1)/5, 1.)
-            self.cur_z = z_init + alpha*dz.T
-            self.cur_u = u_init + alpha*du.T
+
+            self.cur_z = z_init + dz.T
+            self.cur_u = u_init + du.T
 
             iter += 1
             self.comp_time.append(time.time()-t0)
@@ -160,6 +161,10 @@ class NonlinearMPCController(Controller):
         lineq_x = np.tile(self.xmin, self.N + 1) - (self.C @ z_init.T).flatten(order='F')
         uineq_x = np.tile(self.xmax, self.N + 1) - (self.C @ z_init.T).flatten(order='F')
 
+        if self.terminal_constraint:
+            lineq_x[-self.ns:] = self.xr - self.C@z_init[-1,:]
+            uineq_x[-self.ns:] = lineq_x[-self.ns:]
+
         self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
         self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
 
@@ -174,6 +179,7 @@ class NonlinearMPCController(Controller):
         C_data = [np.atleast_1d(self.C[np.nonzero(self.C[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
 
         # State variables:
+        # TODO: Add terminal constraint (does not change but indices must be updated)
         data = []
         A_inds = []
         start_ind_A = 1
