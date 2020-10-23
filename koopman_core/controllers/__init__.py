@@ -9,3 +9,4 @@ from .bilinear_fb_lin_controller import BilinearFBLinController
 from .nonlin_mpc_controller import NonlinMPCController
 from .bilinear_mpc_controller import BilinearMPCController
 from .bilinear_mpc_controller_cvx import BilinearMPCControllerCVX
+from .nonlinear_mpc_controller import NonlinearMPCController
