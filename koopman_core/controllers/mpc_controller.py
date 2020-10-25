@@ -114,7 +114,6 @@ class MPCController(Controller):
             lineq[-self.ns-self.N*self.nu:-self.N*self.nu] = self.q_d
             uineq[-self.ns-self.N*self.nu:-self.N*self.nu] = self.q_d
 
-
         self._osqp_A = sparse.vstack([Aeq, Aineq]).tocsc()
         self._osqp_l = np.hstack([leq, lineq])
         self._osqp_u = np.hstack([ueq, uineq])

@@ -38,6 +38,7 @@ class NonlinearMPCController(Controller):
             self.C = self.dynamics_object.C
         else:
             self.C = np.eye(self.nx)
+            self.dynamics_object.lift = lambda x, t: x
 
         self.Q = Q
         self.QN = QN
@@ -67,9 +68,10 @@ class NonlinearMPCController(Controller):
         A_lst = [np.ones((self.nx,self.nx)) for _ in range(self.N)]
         B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
         r_lst = [np.ones(self.nx) for _ in range(self.N)]
+        self.r_vec = np.array(r_lst).flatten()
 
         self.construct_objective_(z_init, u_init)
-        self.construct_constraint_vecs_(z0, None, z_init, u_init, r_lst)
+        self.construct_constraint_vecs_(z0, None, z_init, u_init)
         self.construct_constraint_matrix_(A_lst, B_lst)
         self.construct_constraint_matrix_data_(A_lst, B_lst)
 
@@ -78,7 +80,7 @@ class NonlinearMPCController(Controller):
         self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
                         warm_start=True, verbose=False, polish=True)
 
-    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
+    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-2, max_iter=1):
         iter = 0
         self.cur_z = z_init_0
         self.cur_u = u_init_0
@@ -94,16 +96,19 @@ class NonlinearMPCController(Controller):
             A_lst = [self.dynamics_object.get_linearization(z, z_next, u, None)[0] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
             B_lst = [self.dynamics_object.get_linearization(z, z_next, u, None)[1] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
             r_lst = [self.dynamics_object.get_linearization(z, z_next, u, None)[2] for z, z_next, u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
+            self.r_vec = np.array(r_lst).flatten()
 
             # Solve MPC Instance
             self.update_objective_(z_init, u_init)
-            self.construct_constraint_vecs_(z, None, z_init, u_init, r_lst)
+            self.construct_constraint_vecs_(z, None, z_init, u_init)
             self.update_constraint_matrix_data_(A_lst, B_lst)
 
             dz, du = self.solve_mpc_()
 
-            self.cur_z = z_init + dz.T
-            self.cur_u = u_init + du.T
+            #alpha = min((iter+1)/5,1)
+            alpha = 1
+            self.cur_z = z_init + alpha*dz.T
+            self.cur_u = u_init + alpha*du.T
 
             iter += 1
             self.comp_time.append(time.time()-t0)
@@ -147,10 +152,10 @@ class NonlinearMPCController(Controller):
 
         self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
 
-    def construct_constraint_vecs_(self, z, t, z_init, u_init, r_lst):
+    def construct_constraint_vecs_(self, z, t, z_init, u_init):
+        # TODO (runtime optimization): Utilize the fact that z_init and u_init are shifted such that not every element of the vectors must be reconstructed at every timestep
         dz0 = z - z_init[0, :]
-        r_vec = np.array(r_lst).flatten()
-        leq = np.hstack([-dz0, -r_vec])
+        leq = np.hstack([-dz0, -self.r_vec])
         ueq = leq
 
         # Input constraints:
@@ -169,6 +174,7 @@ class NonlinearMPCController(Controller):
         self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
 
     def update_objective_(self, z_init, u_init):
+        # TODO (runtime optimzation): Utilize the fact that z_init and u_init are shifted such that not every element of the vectors must be reconstructed at every timestep
         self._osqp_q = np.hstack(
             [(self.C.T @ self.Q @ (self.C @ z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
              self.C.T @ self.QN @ (self.C @ z_init[-1, :] - self.xr),
@@ -179,7 +185,6 @@ class NonlinearMPCController(Controller):
         C_data = [np.atleast_1d(self.C[np.nonzero(self.C[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
 
         # State variables:
-        # TODO: Add terminal constraint (does not change but indices must be updated)
         data = []
         A_inds = []
         start_ind_A = 1
@@ -224,7 +229,43 @@ class NonlinearMPCController(Controller):
         Returns:
             control action -- numpy array [Nu,]
         """
-        pass
+        t0 = time.time()
+        z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
+        x_init, u_init = self.update_initial_guess_()
+        self.update_objective_(x_init, u_init)
+        self.update_linearization_(x_init[-2,:], x_init[-1,:], u_init[-1,:])
+        self.construct_constraint_vecs_(z, t, x_init, u_init)
+
+        dz, du = self.solve_mpc_()
+        self.cur_z = x_init + dz.T
+        self.cur_u = u_init + du.T
+        self.comp_time.append(time.time()-t0)
+
+        return self.cur_u[0,:]
+
+    def update_initial_guess_(self):
+        x_last = self.cur_z[-1,:]
+        u_last = self.cur_u[-1,:]
+        x_new = self.dynamics_object.eval_dot(x_last, u_last, None)
+        u_new = u_last
+
+        x_init = np.vstack((self.cur_z[1:,:], x_new))
+        u_init = np.vstack((self.cur_u[1:,:], u_new))
+
+        return x_init, u_init
+
+    def update_linearization_(self, x, x_next, u):
+        # TODO (Runtime optimization): Rewrite get_linearization to output flat dynamics matrices (avoid numpy.flatten step)
+        A_new, B_new, r_new = self.dynamics_object.get_linearization(x, x_next, u, None)
+
+        self._osqp_A_data[self._osqp_A_data_A_inds[:-self.nx**2]] = self._osqp_A_data[self._osqp_A_data_A_inds[self.nx**2:]]
+        self._osqp_A_data[self._osqp_A_data_A_inds[-self.nx**2:]] = A_new.flatten(order='F')
+
+        self._osqp_A_data[self._osqp_A_data_B_inds[:-self.nx*self.nu]] = self._osqp_A_data[self._osqp_A_data_B_inds[self.nx*self.nu:]]
+        self._osqp_A_data[self._osqp_A_data_B_inds[-self.nx * self.nu:]] = B_new.flatten(order='F')
+
+        self.r_vec[:-self.nx] = self.r_vec[self.nx:]
+        self.r_vec[-self.nx:] = r_new
 
     def get_state_prediction(self):
         return self.cur_z

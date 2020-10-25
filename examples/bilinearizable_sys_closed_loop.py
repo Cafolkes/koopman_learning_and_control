@@ -481,6 +481,9 @@ for ii in range(6):
             
 plt.show()
 
+xs_knmpc_cl, us_knmpc_cl = finite_dim_koop_sys.simulate(x0, controller_kbf, t_eval)
+xs_knmpc_cl, us_knmpc_cl = xs_knmpc_cl.T, us_knmpc_cl.T
+
 
 # In[ ]:
 
