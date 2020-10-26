@@ -31,7 +31,7 @@ class MPCController(Controller):
         Controller.__init__(self, lifted_linear_dynamics)
         self.dynamics_object = lifted_linear_dynamics
         self.dt = dt
-        if lifted_linear_dynamics.continuous:
+        if lifted_linear_dynamics.continuous_mdl:
             Ac = lifted_linear_dynamics.A
             Bc = lifted_linear_dynamics.B
             [self.nx, self.nu] = Bc.shape
