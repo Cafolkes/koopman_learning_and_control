@@ -179,7 +179,7 @@ class NonlinearMPCController(Controller):
         self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
         self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
 
-    def update_constraint_vecs_(self, z, t, x_init, z_init, u_init):
+    def update_constraint_vecs_(self, z, t, x_init_flat, z_init, u_init_flat):
         # Equality constraints:
         self._osqp_l[:self.nx] = -(z - z_init[0, :])
         self._osqp_l[self.nx:self.nx*(self.N+1)] = -self.r_vec
@@ -187,17 +187,16 @@ class NonlinearMPCController(Controller):
         self._osqp_u[:self.nx*(self.N+1)] = self._osqp_l[:self.nx*(self.N+1)]
 
         # Input constraints:
-        u_init_flat = u_init.flatten()
         self._osqp_l[self.n_opt_x:self.n_opt_x_u] = self.umin_tiled - u_init_flat
         self._osqp_u[self.n_opt_x:self.n_opt_x_u] = self.umax_tiled - u_init_flat
 
         # State constraints:
-        x_init_flat = x_init.flatten(order='F')
         self._osqp_l[self.n_opt_x_u:] = self.xmin_tiled - x_init_flat
         self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - x_init_flat
 
         if self.terminal_constraint:
-            self._osqp_l[-self.ns:] = self.xr - x_init[:,-1]
+            #self._osqp_l[-self.ns:] = self.xr - x_init[:,-1]
+            self._osqp_l[-self.ns:] = self.xr - x_init_flat[-self.ns:]
             self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
 
     def update_objective_(self, x_init, u_init):
@@ -242,7 +241,6 @@ class NonlinearMPCController(Controller):
         self._osqp_A_data_B_inds = np.array(B_inds).flatten().tolist()
 
     def update_constraint_matrix_data_(self, A_lst, B_lst):
-        # TODO: Expensive. Try feeding flat lists for EDMD case as high dimension is costly
         self._osqp_A_data[self._osqp_A_data_A_inds] = np.hstack(A_lst).flatten(order='F')
         self._osqp_A_data[self._osqp_A_data_B_inds] = np.hstack(B_lst).flatten(order='F')
 
@@ -260,11 +258,14 @@ class NonlinearMPCController(Controller):
         z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
         z_init, u_init = self.update_initial_guess_()
         x_init = (self.C @ z_init.T)
+        u_init_flat = u_init.flatten()
+        x_init_flat = x_init.flatten(order='F')
+
 
         self.update_objective_(x_init, u_init)
         A_lst, B_lst = self.update_linearization_(z_init, u_init)
         self.update_constraint_matrix_data_(A_lst, B_lst)
-        self.update_constraint_vecs_(z, t, x_init, z_init, u_init)
+        self.update_constraint_vecs_(z, t, x_init_flat, z_init, u_init_flat)
 
         dz, du = self.solve_mpc_()
         self.cur_z = z_init + dz.T
@@ -285,7 +286,6 @@ class NonlinearMPCController(Controller):
         return x_init, u_init
 
     def update_linearization_(self, z_init, u_init):
-        # TODO (Runtime optimization): Do custom implementation exploiting bilinearity for bilinear lifted models (matrix operations)
         lin_mdl_list = [self.dynamics_object.get_linearization(z,z_next,u,None) for z,z_next,u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
         A_lst = [lin_mdl[0] for lin_mdl in lin_mdl_list]
         B_lst = [lin_mdl[1] for lin_mdl in lin_mdl_list]

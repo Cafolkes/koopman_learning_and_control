@@ -7,3 +7,4 @@ from .openloop_controller import OpenLoopController
 from .perturbed_controller import PerturbedController
 from .bilinear_fb_lin_controller import BilinearFBLinController
 from .nonlinear_mpc_controller import NonlinearMPCController
+from .bilinear_mpc_controller import BilinearMPCController

@@ -344,11 +344,11 @@ controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()
 
-from koopman_core.controllers import NonlinearMPCController
+from koopman_core.controllers import NonlinearMPCController, BilinearMPCController
 A_d = np.eye(n_koop) + koop_bilinear_sys.A*dt
 B_d = [b*dt for b in koop_bilinear_sys.B]
 kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous_mdl=False, dt=dt)
-controller_kbf = NonlinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, terminal_constraint=True)
+controller_kbf = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, terminal_constraint=True)
 #controller_kbf_cvx = BilinearMPCControllerCVX(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
 
 z_init = np.tile(z0.reshape((-1,1)),(1,traj_length+1)).T
