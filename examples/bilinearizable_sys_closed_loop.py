@@ -344,12 +344,12 @@ controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()
 
-from koopman_core.controllers import BilinearMPCController, BilinearMPCControllerCVX, NonlinearMPCController
+from koopman_core.controllers import NonlinearMPCController, BilinearMPCController
 A_d = np.eye(n_koop) + koop_bilinear_sys.A*dt
 B_d = [b*dt for b in koop_bilinear_sys.B]
-kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous=False, dt=dt)
-controller_kbf = NonlinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, terminal_constraint=True)
-controller_kbf_cvx = BilinearMPCControllerCVX(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous_mdl=False, dt=dt)
+controller_kbf = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, terminal_constraint=True)
+#controller_kbf_cvx = BilinearMPCControllerCVX(kbf_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
 
 z_init = np.tile(z0.reshape((-1,1)),(1,traj_length+1)).T
 u_init = np.zeros((m,traj_length)).T
@@ -362,9 +362,9 @@ controller_kbf.solve_to_convergence(z0, 0., z_init, u_init, max_iter=100)
 xr_kbf = koop_bilinear_sys.C@controller_kbf.get_state_prediction().T
 ur_kbf = controller_kbf.get_control_prediction().T
 
-controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=1)
-xr_kbf_cvx = koop_bilinear_sys.C@controller_kbf_cvx.get_state_prediction().T
-ur_kbf_cvx = controller_kbf_cvx.get_control_prediction().T
+#controller_kbf_cvx.solve_to_convergence(z0, 0., z_init, u_init, max_iter=1)
+#xr_kbf_cvx = koop_bilinear_sys.C@controller_kbf_cvx.get_state_prediction().T
+#ur_kbf_cvx = controller_kbf_cvx.get_control_prediction().T
 
 finite_dim_koop_sys_d = FiniteDimKoopSysDiscrete(lambd, mu, c, dt)
 controller_nmpc = NonlinearMPCController(finite_dim_koop_sys_d, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
@@ -392,7 +392,6 @@ for ii in range(6):
         plt.plot(t_eval, xr_nmpc[ind,:], label='Nonlinear MPC')
         plt.plot(t_eval, xr_koop[ind,:], label='Linear MPC')
         plt.plot(t_eval, xr_kbf[ind, :], label='Bilinear MPC')
-        plt.plot(t_eval, xr_kbf_cvx[ind, :], label='Bilinear MPC cvx')
         plt.plot([0, 2.], [xmax[ind], xmax[ind]], ':k')
         plt.plot([0, 2.], [xmin[ind], xmin[ind]], ':k')
         plt.scatter(t_eval[0], x0[ind], color='g')
@@ -406,7 +405,6 @@ for ii in range(6):
         plt.plot(t_eval[:-1],ur_nmpc[ind,:])
         plt.plot(t_eval[:-1],ur_koop[ind,:])
         plt.plot(t_eval[:-1], ur_kbf[ind, :])
-        plt.plot(t_eval[:-1], ur_kbf_cvx[ind, :])
         plt.plot([0, 2.], [umax[ind], umax[ind]], ':k')
         plt.plot([0, 2.], [umin[ind], umin[ind]], ':k')
         plt.ylabel(labels[ii])
