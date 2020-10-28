@@ -1,5 +1,6 @@
 from koopman_core.controllers import NonlinearMPCController
 import numpy as np
+import time
 
 class BilinearMPCController(NonlinearMPCController):
     """
@@ -28,8 +29,9 @@ class BilinearMPCController(NonlinearMPCController):
         B_lst_flat = (z_init[:-1,:]@self.B_arr).flatten()
 
         #TODO: (Comp time optimzation) Try to further improve calculation of r_vec
-        self.r_vec[:] = np.array([a.reshape((self.nx,self.nx), order='F')@z - z_next for
-                          a,z, z_next in zip(A_lst, z_init[:-1,:], z_init[1:,:])]).flatten()
+        A_reshaped = A_lst.reshape(self.nx*self.N,self.nx)
+        self.r_vec[:] = (np.array([z_init[i,:]@A_reshaped[i*self.nx:(i+1)*self.nx,:]
+                                  for i in range(self.N)]) - z_init[1:,:]).flatten()
 
         return A_lst_flat, B_lst_flat
 

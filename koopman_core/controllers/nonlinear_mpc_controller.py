@@ -101,7 +101,7 @@ class NonlinearMPCController(Controller):
             self.construct_constraint_vecs_(z, None, z_init, u_init)
             self.update_constraint_matrix_data_(A_lst, B_lst)
 
-            dz, du = self.solve_mpc_()
+            dz, du = self.solve_mpc_(z_init.flatten(), u_init.flatten())
 
             #alpha = min((iter+1)/5,1)
             alpha = 1
@@ -113,8 +113,10 @@ class NonlinearMPCController(Controller):
             self.x_iter.append(self.cur_z.copy().T)
             self.u_iter.append(self.cur_u.copy().T)
 
-    def solve_mpc_(self):
+    def solve_mpc_(self, z_init, u_init):
         self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
+        # TODO (comp time optimzation): Store flat z_init, u_init and update directly
+        self.prob.warm_start(x=np.hstack((z_init, u_init)))
         self.res = self.prob.solve()
         dz = self.res.x[:(self.N+1)*self.nx].reshape(self.nx,self.N+1, order='F')
         du = self.res.x[(self.N+1)*self.nx:].reshape(self.nu,self.N, order='F')
@@ -258,6 +260,7 @@ class NonlinearMPCController(Controller):
         z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
         z_init, u_init = self.update_initial_guess_()
         x_init = (self.C @ z_init.T)
+        z_init_flat = z_init.flatten()
         u_init_flat = u_init.flatten()
         x_init_flat = x_init.flatten(order='F')
 
@@ -267,7 +270,7 @@ class NonlinearMPCController(Controller):
         self.update_constraint_matrix_data_(A_lst, B_lst)
         self.update_constraint_vecs_(z, t, x_init_flat, z_init, u_init_flat)
 
-        dz, du = self.solve_mpc_()
+        dz, du = self.solve_mpc_(z_init_flat, u_init_flat)
         self.cur_z = z_init + dz.T
         self.cur_u = u_init + du.T
         self.comp_time.append(time.time()-t0)
@@ -280,6 +283,7 @@ class NonlinearMPCController(Controller):
         x_new = self.dynamics_object.eval_dot(x_last, u_last, None)
         u_new = u_last
 
+        # TODO: (Comp time optimization) Store x_init between time steps to avoid new memory allocation and index directly
         x_init = np.vstack((self.cur_z[1:,:], x_new))
         u_init = np.vstack((self.cur_u[1:,:], u_new))
 
