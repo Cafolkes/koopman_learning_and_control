@@ -12,7 +12,8 @@ class NonlinearMPCController(Controller):
 
     Quadratic programs are solved using OSQP.
     """
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None, terminal_constraint=False):
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
+                 const_offset=None, terminal_constraint=False, obstacle=None):
         """__init__ Create an MPC controller
         
         Arguments:
@@ -58,6 +59,7 @@ class NonlinearMPCController(Controller):
         self.xr = xr
         self.ns = xr.shape[0]
         self.terminal_constraint = terminal_constraint
+        self.obstacle = obstacle
 
         self.comp_time = []
         self.x_iter = []
@@ -70,10 +72,18 @@ class NonlinearMPCController(Controller):
         r_lst = [np.ones(self.nx) for _ in range(self.N)]
         self.r_vec = np.array(r_lst).flatten()
 
+        if self.obstacle is not None:
+            D_lst = [np.ones((1, self.nx)) for _ in range(self.N)]
+            h_lst = [np.ones(1) for _ in range(self.N)]
+            self.h_vec = np.array(h_lst).flatten()
+            self.construct_constraint_matrix_(A_lst, B_lst, D_lst=D_lst)
+            self.construct_constraint_matrix_data_(A_lst, B_lst, D_lst=D_lst)
+        else:
+            self.construct_constraint_matrix_(A_lst, B_lst)
+            self.construct_constraint_matrix_data_(A_lst, B_lst)
+
         self.construct_objective_(z_init, u_init)
         self.construct_constraint_vecs_(z0, None, z_init, u_init)
-        self.construct_constraint_matrix_(A_lst, B_lst)
-        self.construct_constraint_matrix_data_(A_lst, B_lst)
 
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
@@ -94,13 +104,17 @@ class NonlinearMPCController(Controller):
             u_init = self.cur_u.copy()
 
             # Update equality constraint matrices:
-            A_lst, B_lst = self.update_linearization_(z_init, u_init)
+            A_lst, B_lst = self.update_dynamics_linearization_(z_init, u_init)
+            if self.obstacle is None:
+                self.update_constraint_matrix_data_(A_lst, B_lst)
+            else:
+                D_lst = self.update_obstacle_linearization_(z_init, u_init)
+                self.update_constraint_matrix_data_(A_lst, B_lst, D_lst=D_lst)
 
-            # Solve MPC Instance
             self.update_objective_(x_init, u_init)
             self.construct_constraint_vecs_(z, None, z_init, u_init)
-            self.update_constraint_matrix_data_(A_lst, B_lst)
 
+            # Solve MPC Instance
             dz, du = self.solve_mpc_(z_init.flatten(), u_init.flatten())
 
             #alpha = min((iter+1)/5,1)
@@ -135,7 +149,7 @@ class NonlinearMPCController(Controller):
              self.C.T @ self.QN@(self.C@z_init[-1,:] - self.xr),
              (self.R@u_init.T).flatten(order='F')])
 
-    def construct_constraint_matrix_(self, A_lst, B_lst):
+    def construct_constraint_matrix_(self, A_lst, B_lst, D_lst=None):
         # Linear dynamics constraints:
         A_dyn = sparse.vstack((sparse.csc_matrix((self.nx,(self.N+1)*self.nx)),
                                sparse.hstack((sparse.block_diag(A_lst), sparse.csc_matrix((self.N*self.nx,self.nx))))))
@@ -150,11 +164,17 @@ class NonlinearMPCController(Controller):
         # State constraints:
         Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N+1),self.C), sparse.csc_matrix(((self.N+1)*self.ns, self.N*self.nu))])
 
-        self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
+        if self.obstacle is None:
+            self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
+        else:
+            # Obstacle constraints:
+            Aineq_obs = sparse.hstack([sparse.block_diag(D_lst), sparse.csc_matrix((self.N, self.nx+self.N*self.nu))])
+            self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x, Aineq_obs], format='csc')
 
     def construct_constraint_vecs_(self, z, t, z_init, u_init):
-        self.n_opt_x = self.nx * (self.N + 1)
-        self.n_opt_x_u = self.nx * (self.N + 1) + self.nu*self.N
+        self.n_opt_z = self.nx * (self.N + 1)
+        self.n_opt_z_u = self.n_opt_z + self.nu*self.N
+        self.n_opt_z_u_x = self.n_opt_z_u + self.ns * (self.N + 1)
 
         dz0 = z - z_init[0, :]
         leq = np.hstack([-dz0, -self.r_vec])
@@ -178,8 +198,15 @@ class NonlinearMPCController(Controller):
             lineq_x[-self.ns:] = self.xr - self.C@z_init[-1,:]
             uineq_x[-self.ns:] = lineq_x[-self.ns:]
 
-        self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
-        self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
+        if self.obstacle is None:
+            self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
+            self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
+        else:
+            # Obstacle constraints:
+            lineq_obs = -self.h_vec
+            uineq_obs = np.inf*np.ones(self.N)
+            self._osqp_l = np.hstack([leq, lineq_u, lineq_x, lineq_obs])
+            self._osqp_u = np.hstack([ueq, uineq_u, uineq_x, uineq_obs])
 
     def update_constraint_vecs_(self, z, t, x_init_flat, z_init, u_init_flat):
         # Equality constraints:
@@ -189,17 +216,19 @@ class NonlinearMPCController(Controller):
         self._osqp_u[:self.nx*(self.N+1)] = self._osqp_l[:self.nx*(self.N+1)]
 
         # Input constraints:
-        self._osqp_l[self.n_opt_x:self.n_opt_x_u] = self.umin_tiled - u_init_flat
-        self._osqp_u[self.n_opt_x:self.n_opt_x_u] = self.umax_tiled - u_init_flat
+        self._osqp_l[self.n_opt_z:self.n_opt_z_u] = self.umin_tiled - u_init_flat
+        self._osqp_u[self.n_opt_z:self.n_opt_z_u] = self.umax_tiled - u_init_flat
 
         # State constraints:
-        self._osqp_l[self.n_opt_x_u:] = self.xmin_tiled - x_init_flat
-        self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - x_init_flat
+        self._osqp_l[self.n_opt_z_u:self.n_opt_z_u_x] = self.xmin_tiled - x_init_flat
+        self._osqp_u[self.n_opt_z_u:self.n_opt_z_u_x] = self.xmax_tiled - x_init_flat
 
         if self.terminal_constraint:
-            #self._osqp_l[-self.ns:] = self.xr - x_init[:,-1]
-            self._osqp_l[-self.ns:] = self.xr - x_init_flat[-self.ns:]
-            self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
+            self._osqp_l[self.n_opt_z_u_x-self.ns:self.n_opt_z_u_x] = self.xr - x_init_flat[-self.ns:]
+            self._osqp_u[self.n_opt_z_u_x-self.ns:self.n_opt_z_u_x] = self._osqp_l[self.n_opt_z_u_x-self.ns:self.n_opt_z_u_x]
+
+        if self.obstacle is not None:
+            self._osqp_l[self.n_opt_z_u_x:] = -self.h_vec
 
     def update_objective_(self, x_init, u_init):
         self._osqp_q = np.hstack(
@@ -207,22 +236,29 @@ class NonlinearMPCController(Controller):
              self.C.T @ self.QN @ (x_init[:,-1] - self.xr),
              (self.R @ u_init.T).flatten(order='F')])
 
-    def construct_constraint_matrix_data_(self, A_lst, B_lst):
+    def construct_constraint_matrix_data_(self, A_lst, B_lst, D_lst=None):
         '''Manually build csc_matrix.data array'''
         C_data = [np.atleast_1d(self.C[np.nonzero(self.C[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
 
         # State variables:
         data = []
         A_inds = []
+        D_inds = []
         start_ind_A = 1
         for t in range(self.N):
             for i in range(self.nx):
-                data.append(np.hstack((-np.ones(1), A_lst[t][:,i], np.array(C_data[i]))))
-                A_inds.append(np.arange(start_ind_A, start_ind_A+self.nx))
-                start_ind_A += self.nx + 1 + len(C_data[i])
-
+                if self.obstacle is None:
+                    data.append(np.hstack((-np.ones(1), A_lst[t][:,i], np.array(C_data[i]))))
+                    A_inds.append(np.arange(start_ind_A, start_ind_A+self.nx))
+                    start_ind_A += self.nx + 1 + len(C_data[i])
+                else:
+                    data.append(np.hstack((-np.ones(1), A_lst[t][:, i], np.array(C_data[i]), D_lst[t][:, i])))
+                    A_inds.append(np.arange(start_ind_A, start_ind_A + self.nx))  #TODO: Currently only implemented for single obstacle constraint
+                    D_inds.append(start_ind_A + self.nx + len(C_data[i]))
+                    start_ind_A += self.nx + 1 + len(C_data[i]) + 1
         for i in range(self.nx):
             data.append(np.hstack((-np.ones(1), np.array(C_data[i]))))
+            # TODO: Add terminal obstacle constraint.
 
         # Input variables:
         B_inds = []
@@ -241,10 +277,14 @@ class NonlinearMPCController(Controller):
         self._osqp_A_data = np.array(flat_data)
         self._osqp_A_data_A_inds = np.array(A_inds).flatten().tolist()
         self._osqp_A_data_B_inds = np.array(B_inds).flatten().tolist()
+        if self.obstacle is not None:
+            self._osqp_A_data_D_inds = np.array(D_inds).flatten().tolist()
 
-    def update_constraint_matrix_data_(self, A_lst, B_lst):
+    def update_constraint_matrix_data_(self, A_lst, B_lst, D_lst=None):
         self._osqp_A_data[self._osqp_A_data_A_inds] = np.hstack(A_lst).flatten(order='F')
         self._osqp_A_data[self._osqp_A_data_B_inds] = np.hstack(B_lst).flatten(order='F')
+        if self.obstacle is not None:
+            self._osqp_A_data[self._osqp_A_data_D_inds] = np.hstack(D_lst).flatten(order='F')
 
     def eval(self, x, t):
         """eval Function to evaluate controller
@@ -266,8 +306,14 @@ class NonlinearMPCController(Controller):
 
 
         self.update_objective_(x_init, u_init)
-        A_lst, B_lst = self.update_linearization_(z_init, u_init)
-        self.update_constraint_matrix_data_(A_lst, B_lst)
+        A_lst, B_lst = self.update_dynamics_linearization_(z_init, u_init)
+
+        if self.obstacle is None:
+            self.update_constraint_matrix_data_(A_lst, B_lst)
+        else:
+            D_lst = self.update_obstacle_linearization_(z_init, u_init)
+            self.update_constraint_matrix_data_(A_lst, B_lst, D_lst=D_lst)
+
         self.update_constraint_vecs_(z, t, x_init_flat, z_init, u_init_flat)
 
         dz, du = self.solve_mpc_(z_init_flat, u_init_flat)
@@ -289,13 +335,20 @@ class NonlinearMPCController(Controller):
 
         return x_init, u_init
 
-    def update_linearization_(self, z_init, u_init):
+    def update_dynamics_linearization_(self, z_init, u_init):
         lin_mdl_list = [self.dynamics_object.get_linearization(z,z_next,u,None) for z,z_next,u in zip(z_init[:-1,:], z_init[1:,:], u_init)]
         A_lst = [lin_mdl[0] for lin_mdl in lin_mdl_list]
         B_lst = [lin_mdl[1] for lin_mdl in lin_mdl_list]
         self.r_vec = np.array([lin_mdl[2] for lin_mdl in lin_mdl_list]).flatten()
 
         return A_lst, B_lst
+
+    def update_obstacle_linearization_(self, z_init, u_init):
+        lin_mdl_list = [self.obstacle(z) for z in z_init[:-1,:]]
+        D_lst = [lin_mdl[0] for lin_mdl in lin_mdl_list]
+        self.h_vec = np.array([lin_mdl[1] for lin_mdl in lin_mdl_list]).flatten()
+
+        return D_lst
 
     def get_state_prediction(self):
         return self.cur_z

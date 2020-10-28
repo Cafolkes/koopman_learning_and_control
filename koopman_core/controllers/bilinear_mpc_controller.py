@@ -23,7 +23,7 @@ class BilinearMPCController(NonlinearMPCController):
         self._osqp_A_data[self._osqp_A_data_A_inds] = A_lst
         self._osqp_A_data[self._osqp_A_data_B_inds] = B_lst
 
-    def update_linearization_(self, z_init, u_init):
+    def update_dynamics_linearization_(self, z_init, u_init):
         A_lst = u_init@self.B_flat + self.A_flat
         A_lst_flat = A_lst.flatten()
         B_lst_flat = (z_init[:-1,:]@self.B_arr).flatten()
