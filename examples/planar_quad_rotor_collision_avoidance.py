@@ -175,7 +175,7 @@ dt = 1.0e-2                                                         # Time step 
 traj_length_dc = 2.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_dc = 10   # TODO: set to 100                                                  # Number of trajectories to execute, data collection
+n_traj_dc = 20   # TODO: set to 100                                                  # Number of trajectories to execute, data collection
 noise_var = 2.                                                      # Exploration noise to perturb controller, data collection
 
 xmax = np.array([2, 2, np.pi/3, 2.,2.,2.])                          # State constraints, trajectory generation
@@ -243,25 +243,46 @@ plt.show()
 #     \mathbf{\dot{z}}=F\mathbf{z}+\sum_{i=1}^m G_i\mathbf{z}\mathbf{u}_i, \qquad \mathbf{z} = \boldsymbol{\phi(x)}
 # \end{equation}
 
-# In[5]:
-
-
-#Bilinear EDMD parameters:
-alpha_bedmd_init = 5.5e-5                                           # Regularization strength (LASSO) bEDMD
-alpha_bedmd = 5.5e-5
-tune_mdl_bedmd = False
-
-
 # In[6]:
 
 
-basis = PlanarQuadBasis(n, poly_deg=3)
+def circular_obstacle(x, c, r):
+    '''
+    Circular obstacle avoidance constraint of the form h(x) >= 0.
+    h(x) = (x-c)'(x-c) - r^2 
+    '''
+    
+    h = (x[:2] - c).T@(x[:2] - c) - r**2
+    D = np.hstack([2*(x[:2] - c), np.zeros(4)])
+    
+    return D, h
+
+r = 0.3
+safe_marg = 0.025
+c = np.array([[0.5, 0.8]])
+obstacle = lambda x: circular_obstacle(x, c.squeeze(), r)
+
+
+# In[20]:
+
+
+#Bilinear EDMD parameters:                                          # Regularization strength (LASSO) bEDMD
+alpha_bedmd = 1.8e-4
+tune_mdl_bedmd = False
+
+
+# In[21]:
+
+
+basis = PlanarQuadBasis(n, poly_deg=3, circ_obs_c=c, circ_obs_r=r)
 basis.construct_basis()
 planar_quad_features = preprocessing.FunctionTransformer(basis.basis)
 planar_quad_features.fit(np.zeros((1,n)))
 n_lift_bedmd = planar_quad_features.transform((np.zeros((1,n)))).shape[1]
 C_bedmd = np.zeros((n,n_lift_bedmd))
 C_bedmd[:,1:n+1] = np.eye(n)
+C_h_bedmd = np.zeros((1,n_lift_bedmd))
+C_h_bedmd[:,-1] = 1
 
 basis_bedmd = lambda x: planar_quad_features.transform(x)
 optimizer_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd, fit_intercept=False, selection='random')
@@ -271,7 +292,7 @@ standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
 model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_bedmd, continuous_mdl=False, dt=dt)
 X_bedmd, y_bedmd = model_bedmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
 model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True)
-sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis, continuous_mdl=False, dt=dt)
+sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis, continuous_mdl=False, dt=dt, C_h=C_h_bedmd)
 if tune_mdl_bedmd:
     print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
     
@@ -279,7 +300,7 @@ if tune_mdl_bedmd:
 
 # #### Save learned models
 
-# In[7]:
+# In[22]:
 
 
 import dill
@@ -301,22 +322,17 @@ with open(model_fname, 'wb') as handle:
 # improvement is that the bEDMD method can capture the nonlinearities present in the actuation matrix of the
 # $(y,z)$-dynamics.
 
-# In[8]:
+# In[23]:
 
 
 # Prediction performance evaluation parameters:
 folder_plots = 'examples/figures/'                                  # Path to save plots
-n_traj_ol = 10 #TODO: Set to 100                                                      # Number of trajectories to execute, open loop
+n_traj_ol = 5 #TODO: Set to 100                                                      # Number of trajectories to execute, open loop
 
-
-# In[9]:
-
-
+# In[24]:
 from tabulate import tabulate
 
 xs_ol = np.empty((n_traj_ol, t_eval.shape[0], n))
-xs_dmd_ol = np.empty((n_traj_ol, t_eval.shape[0]-1, n))
-xs_edmd_ol = np.empty((n_traj_ol, t_eval.shape[0]-1, n))
 xs_bedmd_ol = np.empty((n_traj_ol, t_eval.shape[0]-1, n))
 us_test = np.empty((n_traj_ol, t_eval.shape[0]-1, m))
 
@@ -357,7 +373,7 @@ print(tabulate([['bEDMD', "{:.3f}".format(mse_bedmd)]],
                headers=['Learned model', 'MSE']))
 
 
-# In[10]:
+# In[25]:
 
 
 import matplotlib.pyplot as plt
@@ -369,17 +385,17 @@ fs = 16
 y_lim_gain = 1.2
 
 #Plot open loop results:
-ylabels = ['$e_{y}$', '$e_z$', '$e_{\\theta}$']
+ylabels = ['$e_{y}$', '$e_z$', '$e_{\\theta}$', '$e_{obs}$']
+inds = [0, 1, 2, -1]
 plt.figure(figsize=(figwidth,3))
-for ii in range(3):
-    plt.subplot(1,3,ii+1)
-    plt.plot(t_eval[:-1], error_bedmd_mean[ii, :], linewidth=lw, label='bEDMD')
-    plt.fill_between(t_eval[:-1], error_bedmd_mean[ii, :] - error_bedmd_std[ii, :],error_bedmd_mean[ii, :] + error_bedmd_std[ii, :], alpha=0.2)
-    ylim = max(max(np.abs(error_bedmd_mean[ii, :] - error_bedmd_std[ii, :])), max(np.abs(error_bedmd_mean[ii, :] + error_bedmd_std[ii, :])))
+for ii in range(4):
+    plt.subplot(1,4,ii+1)
+    plt.plot(t_eval[:-1], error_bedmd_mean[inds[ii], :], linewidth=lw, label='bEDMD')
+    plt.fill_between(t_eval[:-1], error_bedmd_mean[inds[ii], :] - error_bedmd_std[inds[ii], :],error_bedmd_mean[inds[ii], :] + error_bedmd_std[inds[ii], :], alpha=0.2)
+    ylim = max(max(np.abs(error_bedmd_mean[inds[ii], :] - error_bedmd_std[inds[ii], :])), max(np.abs(error_bedmd_mean[inds[ii], :] + error_bedmd_std[inds[ii], :])))
     plt.ylim([-ylim * y_lim_gain, ylim * y_lim_gain])
     plt.xlabel('$t$ (sec)', fontsize=fs)
     plt.ylabel(ylabels[ii], fontsize=fs)
-    plt.grid()
 
 plt.legend(loc='upper left', fontsize=fs-4)
 suptitle = plt.suptitle('Open loop prediction error of DMD, EDMD and bilinear EDMD models', y=1.05, fontsize=18)
@@ -394,13 +410,13 @@ plt.show()
 
 # We now study the closed loop performance of the control design. 
 
-# In[11]:
+# In[26]:
 
 
 #Closed loop performance evaluation parameters:
 t_eval = dt * np.arange(201)                                     # Simulation time points, closed loop
 Q_mpc = sc.sparse.diags([0,0,0,0,0,0])                       # State penalty matrix, trajectory generation
-QN_mpc = sc.sparse.diags([1e5,1e5,1e5,1e5,1e5,1e5])          # Final state penalty matrix, trajectory generation
+QN_mpc = sc.sparse.diags([1e5,1e5,1e5,1e4,1e4,1e4])          # Final state penalty matrix, trajectory generation
 R_mpc = sc.sparse.eye(m)                                     # Actuation penalty matrix, trajectory generation
 traj_length=200
 ctrl_offset = np.array([hover_thrust, hover_thrust])
@@ -411,31 +427,14 @@ set_pt_cl = np.array([1., 1., 0., 0., 0., 0.])                      # Desired fi
 term_constraint=False
 
 # Define initial solution for SQP algorithm:
-x_init = np.vstack((np.linspace(x0_cl, set_pt_cl, int(traj_length/2)), np.tile(set_pt_cl, (int(traj_length/2)+1, 1))))
+mid_pt_cl = np.array([0.1,1.2,0.,0.,0.,0.])
+x_init = np.vstack((np.linspace(x0_cl, mid_pt_cl, int(traj_length/2)), np.linspace(mid_pt_cl, set_pt_cl, int(traj_length/2)+1)))
 u_init = np.zeros((m,traj_length)).T
-
-
-# In[12]:
-
-
-def circular_obstacle(x, c, r):
-    '''
-    Circular obstacle avoidance constraint of the form h(x) >= 0.
-    h(x) = (x-c)'(x-c) - r^2 
-    '''
-    
-    h = (x[:2] - c).T@(x[:2] - c) - r**2
-    D = np.hstack([2*(x[:2] - c), np.zeros(4)])
-    
-    return D, h
-r = 0.1
-c = np.array([0.7, 0.4])
-obstacle = lambda x: circular_obstacle(x, c, r)
 
 
 # #### Design controllers for learned DMD, EDMD, and bEDMD models
 
-# In[13]:
+# In[27]:
 
 
 from koopman_core.controllers import MPCController, NonlinearMPCController, BilinearMPCController
@@ -449,7 +448,7 @@ controller_bedmd.construct_controller(z_init, u_init)
 
 # #### Design controller using full knowledge of nonlinear controller
 
-# In[ ]:
+# In[28]:
 
 
 quadrotor_d = PlanarQuadrotorForceInputDiscrete(mass, inertia, prop_arm, g=gravity, dt=dt)
@@ -459,7 +458,7 @@ controller_nmpc.construct_controller(x_init, u_init)
 
 # #### Design trajectories with the contructed MPCs
 
-# In[ ]:
+# In[29]:
 
 
 max_iter = 50
@@ -495,39 +494,34 @@ xs_nmpc, us_nmpc = xs_nmpc.T, us_nmpc.T
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
-plot_inds = [0, 3, 1, 4, 2, 5, 0, 1, 2]
-subplot_inds = [1, 2, 4, 5, 7, 8, 3, 6, 9]
 labels = ['$x$ (m)', '$z$ (m)', '$\\theta$ (rad)', '$\\dot{x}$ (m/s)','$\\dot{z}$ (m/s)', '$\\dot{\\theta}$', '$T_1$ (N)','$T_2$ (N)']
 colors = ['tab:blue', 'tab:orange', 'tab:brown', 'tab:cyan']
 
-plt.figure(figsize=(15,12))
-plt.suptitle('Trajectory designed with model predictive controllers\nsolid lines - designed trajectory | dashed lines - open loop simulated trajectory | black dotted lines - state/actuation bounds')
-for ii in range(9):
-    ind = plot_inds[ii]
-    if ii < 6:
-        plt.subplot(3,3,subplot_inds[ii])
-        plt.plot(t_eval, xr_bedmd[ind, :], colors[2], label='bEDMD MPC')
-        plt.plot(t_eval, xr_nmpc[ind,:], colors[3], label='Nonlinear MPC')
+plt.figure(figsize=(15,6))
+#plt.suptitle('Trajectory designed with model predictive controllers\nsolid lines - designed trajectory | dashed lines - open loop simulated trajectory | black dotted lines - state/actuation bounds')
+ax = plt.subplot(1,2,1)
+plt.plot(xr_bedmd[0,:], xr_bedmd[1,:], color=colors[2], label='bEDMD NPMC')
+plt.plot(xr_nmpc[0,:], xr_nmpc[1,:], color=colors[3], label='NPMC')
+plt.plot(xs_bedmd[0,:], xs_bedmd[1,:],'--', color=colors[2])
+plt.plot(xs_nmpc[0,:], xs_nmpc[1,:],'--', color=colors[3])
 
-        plt.plot(t_eval, xs_bedmd[ind, :], '--', color=colors[2], linewidth=0.75)
-        plt.plot(t_eval, xs_nmpc[ind,:], '--', color=colors[3], linewidth=0.75)
+plt.scatter(x0_cl[0], x0_cl[1], color='g')
+plt.scatter(set_pt_cl[0], set_pt_cl[1], color='r')
+ax.add_artist(plt.Circle(c.squeeze(), r-safe_marg))
 
-        plt.plot([0, 2.], [xmax[ind], xmax[ind]], ':k')
-        plt.plot([0, 2.], [xmin[ind], xmin[ind]], ':k')
-        plt.scatter(t_eval[0], x0_cl[ind], color='g')
-        plt.scatter(t_eval[-1], set_pt_cl[ind], color='r')
-        plt.ylabel(labels[ind])
-        plt.ylim(xmin[ind]-0.1,xmax[ind]+0.1)
-        if subplot_inds[ii]==8:
-            plt.legend(loc='upper left', bbox_to_anchor=(0.975, 0.95), frameon=False)
-    elif ii < 8:
-        ax = plt.subplot(3,3,subplot_inds[ii])
-        plt.plot(t_eval[:-1], ur_bedmd[ind, :], color=colors[2], label='bEDMD MPC')
-        plt.plot(t_eval[:-1],ur_nmpc[ind,:], color=colors[3], label='Nonlinear MPC')
-        plt.plot([0, 2.], [umax[ind]+hover_thrust, umax[ind]+hover_thrust], ':k')
-        plt.plot([0, 2.], [umin[ind]+hover_thrust, umin[ind]+hover_thrust], ':k')
-        plt.ylabel(labels[ii])
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+plt.title('Designed trajectory')
+plt.xlabel(labels[0])
+plt.ylabel(labels[1])
+
+subplot_inds = [2, 4]
+for ii in range(m):
+    ax = plt.subplot(2,2,subplot_inds[ii])
+    plt.plot(t_eval[:-1], ur_bedmd[ii, :], color=colors[2], label='bEDMD MPC')
+    plt.plot(t_eval[:-1],ur_nmpc[ii,:], color=colors[3], label='Nonlinear MPC')
+    plt.plot([0, 2.], [umax[ii]+hover_thrust, umax[ii]+hover_thrust], ':k')
+    plt.plot([0, 2.], [umin[ii]+hover_thrust, umin[ii]+hover_thrust], ':k')
+    plt.ylabel(labels[6+ii])
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         
     if subplot_inds[ii] == 7 or subplot_inds[ii] == 8 or subplot_inds[ii] == 6:
         plt.xlabel('Time (sec)')
@@ -583,25 +577,34 @@ for ii in range(len(controller_nmpc.x_iter)):
     iter_cost_nmpc.append((xs_nmpc_iter[:,-1]-set_pt_cl).T@QN_mpc@(xs_nmpc_iter[:,-1]-set_pt_cl) + np.sum(np.diag(us_nmpc_iter.T@R_mpc@us_nmpc_iter)))
 
 plt.figure(figsize=(15,8))
-plt.suptitle('Control solution after each iteration of the SQP-algorithm for NMPC and K-NMPC')
-ax1 = plt.subplot(2,3,1)
-ax1.plot(t_eval[:-1],u_init[:, 0])
-ax2 = plt.subplot(2,3,2)
-ax2.plot(t_eval[:-1],u_init[:, 1], label='Iteration 0')
-ax3 = plt.subplot(2,3,4)
-ax3.plot(t_eval[:-1],u_init[:, 0])
-ax4 = plt.subplot(2,3,5)
-ax4.plot(t_eval[:-1],u_init[:, 0])
+#plt.suptitle('Control solution after each iteration of the SQP-algorithm for NMPC and K-NMPC')
+ax0 = plt.subplot(1,2,1)
+ax0.plot(x_init[:,0], x_init[:,1], color=colors[2], label='bEDMD NPMC')
+#ax0.plot(x_init[0,:], x_init[1,:], color=colors[3], label='NPMC')
+ax0.scatter(x0_cl[0], x0_cl[1], color='g')
+ax0.scatter(set_pt_cl[0], set_pt_cl[1], color='r')
+ax0.add_artist(plt.Circle(c.squeeze(), r-safe_marg))
+
+ax1 = plt.subplot(2,4,3)
+ax1.plot(t_eval[:-1],u_init[:, 0]+hover_thrust)
+ax2 = plt.subplot(2,4,4)
+ax2.plot(t_eval[:-1],u_init[:, 1]+hover_thrust, label='Iteration 0')
+ax3 = plt.subplot(2,4,7)
+ax3.plot(t_eval[:-1],u_init[:, 0]+hover_thrust)
+ax4 = plt.subplot(2,4,8)
+ax4.plot(t_eval[:-1],u_init[:, 0]+hover_thrust)
 
 for it in range(n_iter):
+    #ax0.plot((sys_bedmd.C@controller_bedmd.x_iter[it])[0,:], (sys_bedmd.C@controller_bedmd.x_iter[it])[1,:])
+    ax0.plot(controller_nmpc.x_iter[it][0,:], controller_nmpc.x_iter[it][1,:])
     ax1.plot(t_eval[:-1],controller_nmpc.u_iter[it][0,:])
     ax2.plot(t_eval[:-1],controller_nmpc.u_iter[it][1,:], label='Iteration '+str(it+1))
     ax3.plot(t_eval[:-1],controller_bedmd.u_iter[it][0,:])
     ax4.plot(t_eval[:-1],controller_bedmd.u_iter[it][1,:])
     
-ax5 = plt.subplot(1,3,3)
-ax5.plot(np.arange(n_iter), iter_cost_nmpc[:n_iter]/iter_cost_nmpc[-1], 'tab:cyan', label='NMPC')
-ax5.plot(np.arange(n_iter), iter_cost_bedmd[:n_iter]/iter_cost_nmpc[-1], 'k', label='K-NMPC')
+#ax5 = plt.subplot(1,3,3)
+#ax5.plot(np.arange(n_iter), iter_cost_nmpc[:n_iter]/iter_cost_nmpc[-1], 'tab:cyan', label='NMPC')
+#ax5.plot(np.arange(n_iter), iter_cost_bedmd[:n_iter]/iter_cost_nmpc[-1], 'k', label='K-NMPC')
 
 ax1.set_title('Control action sequence at each iteration\n$u_1$')
 ax1.set_ylabel('NMPC\nControl value')
@@ -610,10 +613,10 @@ ax2.legend(ncol=2, loc='upper right', frameon=False)
 ax3.set_ylabel('K-NMPC\nControl value')
 ax3.set_xlabel('Time (sec)')
 ax4.set_xlabel('Time (sec)')
-ax5.set_title('Realized cost after each iteration\n')
-ax5.set_xlabel('Iteration')
-ax5.set_ylabel('Cost (normalized)')
-ax5.legend(loc='upper right', frameon=False)
+#ax5.set_title('Realized cost after each iteration\n')
+#ax5.set_xlabel('Iteration')
+#ax5.set_ylabel('Cost (normalized)')
+#ax5.legend(loc='upper right', frameon=False)
 
 plt.show()
 
@@ -644,7 +647,7 @@ controller_bedmd_cl.construct_controller(controller_bedmd.cur_z[:N_cl+1,:], cont
 controller_bedmd_cl.solve_to_convergence(z0_cl, 0., controller_bedmd.cur_z[:N_cl+1,:], controller_bedmd.cur_u[:N_cl,:], max_iter=max_iter)
 controller_bedmd_cl = PerturbedController(sys_bedmd,controller_bedmd_cl,0.,const_offset=hover_thrust, umin=umin, umax=umax)
 
-controller_nmpc_cl = NonlinearMPCController(quadrotor_d, N_cl, dt, umin+hover_thrust, umax+hover_thrust, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt_cl, terminal_constraint=term_constraint)
+controller_nmpc_cl = NonlinearMPCController(quadrotor_d, N_cl, dt, umin+hover_thrust, umax+hover_thrust, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt_cl, terminal_constraint=term_constraint, obstacle=obstacle)
 controller_nmpc_cl.construct_controller(controller_nmpc.cur_z[:N_cl+1,:], controller_nmpc.cur_u[:N_cl,:])
 controller_nmpc_cl.solve_to_convergence(x0_cl, 0., controller_nmpc.cur_z[:N_cl+1,:], controller_nmpc.cur_u[:N_cl,:], max_iter=max_iter)
 
@@ -668,36 +671,35 @@ xs_nmpc_cl, us_nmpc_cl = xs_nmpc_cl.T, us_nmpc_cl.T
 # In[ ]:
 
 
-plot_inds = [0, 3, 1, 4, 2, 5, 0, 1, 2]
-subplot_inds = [1, 2, 4, 5, 7, 8, 3, 6, 9]
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
 labels = ['$x$ (m)', '$z$ (m)', '$\\theta$ (rad)', '$\\dot{x}$ (m/s)','$\\dot{z}$ (m/s)', '$\\dot{\\theta}$', '$T_1$ (N)','$T_2$ (N)']
 colors = ['tab:blue', 'tab:orange', 'tab:brown', 'tab:cyan']
 
-plt.figure(figsize=(15,12))
-plt.suptitle('Closed loop control with model predictive controllers\nblack dotted lines - state/actuation bounds')
-for ii in range(9):
-    ind = plot_inds[ii]
-    if ii < 6:
-        plt.subplot(3,3,subplot_inds[ii])
-        plt.plot(t_eval, xs_bedmd_cl[ind, :], colors[2], label='bEDMD MPC')
-        plt.plot(t_eval, xs_nmpc_cl[ind,:], colors[3], label='Nonlinear MPC')
+plt.figure(figsize=(15,6))
+#plt.suptitle('Trajectory designed with model predictive controllers\nsolid lines - designed trajectory | dashed lines - open loop simulated trajectory | black dotted lines - state/actuation bounds')
+ax = plt.subplot(1,2,1)
+plt.plot(xs_bedmd_cl[0,:], xs_bedmd_cl[1,:], color=colors[2], label='bEDMD NPMC')
+plt.plot(xs_nmpc_cl[0,:], xs_nmpc_cl[1,:], color=colors[3], label='NPMC')
 
-        plt.plot([0, t_eval[-1]], [xmax[ind], xmax[ind]], ':k')
-        plt.plot([0, t_eval[-1]], [xmin[ind], xmin[ind]], ':k')
-        plt.scatter(t_eval[0], x0_cl[ind], color='g')
-        plt.scatter(t_eval[-1], set_pt_cl[ind], color='r')
-        plt.ylabel(labels[ind])
-        plt.ylim(xmin[ind]-0.1,xmax[ind]+0.1)
-        if subplot_inds[ii]==8:
-            plt.legend(loc='upper left', bbox_to_anchor=(0.975, 0.95), frameon=False)
-    elif ii < 8:
-        ax = plt.subplot(3,3,subplot_inds[ii])
-        plt.plot(t_eval[:-1],us_bedmd_cl[ind, :], color=colors[2], label='bEDMD MPC')
-        plt.plot(t_eval[:-1],us_nmpc_cl[ind,:], color=colors[3], label='Nonlinear MPC')
-        plt.plot([0, t_eval[-1]], [umax[ind]+hover_thrust, umax[ind]+hover_thrust], ':k')
-        plt.plot([0, t_eval[-1]], [umin[ind]+hover_thrust, umin[ind]+hover_thrust], ':k')
-        plt.ylabel(labels[ii])
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+plt.scatter(x0_cl[0], x0_cl[1], color='g')
+plt.scatter(set_pt_cl[0], set_pt_cl[1], color='r')
+ax.add_artist(plt.Circle(c.squeeze(), r-safe_marg))
+
+plt.title('Designed trajectory')
+plt.xlabel(labels[0])
+plt.ylabel(labels[1])
+
+subplot_inds = [2, 4]
+for ii in range(m):
+    ax = plt.subplot(2,2,subplot_inds[ii])
+    plt.plot(t_eval[:-1], us_bedmd_cl[ii, :], color=colors[2], label='bEDMD MPC')
+    plt.plot(t_eval[:-1],us_nmpc_cl[ii,:], color=colors[3], label='Nonlinear MPC')
+    plt.plot([0, 2.], [umax[ii]+hover_thrust, umax[ii]+hover_thrust], ':k')
+    plt.plot([0, 2.], [umin[ii]+hover_thrust, umin[ii]+hover_thrust], ':k')
+    plt.ylabel(labels[6+ii])
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         
     if subplot_inds[ii] == 7 or subplot_inds[ii] == 8 or subplot_inds[ii] == 6:
         plt.xlabel('Time (sec)')
@@ -709,19 +711,13 @@ for ii in range(9):
 #            bbox_inches="tight")
 plt.show()
 
-cost_cl_bedmd = np.sum(np.diag((xs_bedmd_cl[:,:-1]-set_pt_cl.reshape(-1,1)).T@Q_mpc_cl@(xs_bedmd_cl[:,:-1]-set_pt_cl.reshape(-1,1)))) + (xs_bedmd_cl[:,-1]-set_pt_cl).T@QN_mpc_cl@(xs_bedmd_cl[:,-1]-set_pt_cl) + np.sum(np.diag(us_bedmd_cl.T@R_mpc_cl@us_bedmd_cl))
-cost_cl_nmpc = np.sum(np.diag((xs_nmpc_cl[:,:-1]-set_pt_cl.reshape(-1,1)).T@Q_mpc_cl@(xs_nmpc_cl[:,:-1]-set_pt_cl.reshape(-1,1)))) + (xs_nmpc_cl[:,-1]-set_pt_cl).T@QN_mpc_cl@(xs_nmpc_cl[:,-1]-set_pt_cl) + np.sum(np.diag(us_nmpc_cl.T@R_mpc_cl@us_nmpc_cl))
+cost_bedmd_cl = (xs_bedmd_cl[:,-1]-set_pt_cl).T@QN_mpc@(xs_bedmd_cl[:,-1]-set_pt_cl) + np.sum(np.diag(us_bedmd_cl.T@R_mpc@us_bedmd_cl))
+cost_nmpc_cl = (xs_nmpc_cl[:,-1]-set_pt_cl).T@QN_mpc@(xs_nmpc_cl[:,-1]-set_pt_cl) + np.sum(np.diag(us_nmpc_cl.T@R_mpc@us_nmpc_cl))
 
 print('Solution statistics:\n')
-print(tabulate([['bEDMD MPC', "{:.4f}".format(cost_cl_bedmd/cost_cl_nmpc), np.mean(controller_bedmd_cl.nom_controller.comp_time), np.std(controller_bedmd_cl.nom_controller.comp_time)],
-                ['NMPC (benchmark, known model)',1, np.mean(controller_nmpc_cl.comp_time), np.std(controller_nmpc_cl.comp_time)]], 
-               headers=['Normalized cost,\nrealized trajectory', 'Mean comp. time (secs)', 'std comp. time (secs)']))
-
-
-# In[ ]:
-
-
-
+print(tabulate([['bEDMD MPC', "{:.4f}".format(cost_bedmd_cl/cost_nmpc_cl), "{:.4f}".format(np.mean(controller_bedmd_cl.nom_controller.comp_time)), "{:.4f}".format(np.std(controller_bedmd_cl.nom_controller.comp_time))],
+                ['NMPC (benchmark)', 1, "{:.4f}".format(np.mean(controller_nmpc_cl.comp_time)), "{:.4f}".format(np.mean(controller_nmpc_cl.comp_time))]], 
+               headers=['Normalized cost,\ndesigned trajectory', 'Normalized cost,\nrealized trajectory','Mean comp. time\nper iteration (secs)', 'std comp. time\nper iteration (secs)']))
 
 
 # In[ ]:

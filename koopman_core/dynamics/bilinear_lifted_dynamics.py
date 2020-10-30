@@ -12,7 +12,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     Override drift, act.
     """
 
-    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None):
+    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None, C_h=None):
         """Create a RoboticDynamics object.
 
         Inputs:
@@ -34,6 +34,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
 
         self.continuous_mdl = continuous_mdl
         self.dt = dt
+        self.C_h = C_h
 
     def drift(self, x, t):
         return dot(self.A, x)

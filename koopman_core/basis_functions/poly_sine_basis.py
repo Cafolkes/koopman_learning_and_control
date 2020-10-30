@@ -9,7 +9,7 @@ class PolySineBasis(BasisFunctions):
     Override construct_basis
     """
 
-    def __init__(self, n, poly_deg=2, n_lift=None, cross_terms=True):
+    def __init__(self, n, poly_deg=2, n_lift=None, cross_terms=True, circ_obs_c=None, circ_obs_r=None):
         """
         Parameters
         ----------
@@ -21,6 +21,8 @@ class PolySineBasis(BasisFunctions):
         self.poly_deg = poly_deg
         self.cross_terms = cross_terms
         super(PolySineBasis, self).__init__(n, n_lift)
+        self.circ_obs_c = circ_obs_c
+        self.circ_obs_r = circ_obs_r
 
     def construct_basis(self):
         poly_features = preprocessing.PolynomialFeatures(degree=self.poly_deg)
@@ -29,8 +31,16 @@ class PolySineBasis(BasisFunctions):
 
         if self.cross_terms:
             sine_func = lambda x: np.concatenate((np.ones((x.shape[0],1)), np.sin(x[:,2:3]), np.cos(x[:,2:3])),axis=1)
-            self.basis = lambda x: self.basis_product_(x, poly_func, sine_func)
-            self.n_lift = poly_features.n_output_features_*sine_func(np.zeros((1,self.n))).shape[1]
+            if self.circ_obs_c is None and self.circ_obs_r is None:
+                self.basis = lambda x: self.basis_product_(x, poly_func, sine_func)
+                self.n_lift = poly_features.n_output_features_ * sine_func(np.zeros((1, self.n))).shape[1]
+            else:
+                circ_obs = lambda x: (np.diag(
+                    (x[:,:2]-self.circ_obs_c)@(x[:,:2]-self.circ_obs_c).T)-self.circ_obs_r**2).reshape(-1,1)
+
+                self.basis = lambda x: np.hstack((self.basis_product_(x, poly_func, sine_func),
+                                                  circ_obs(x)))
+                self.n_lift = poly_features.n_output_features_ * sine_func(np.zeros((1, self.n))).shape[1] + 1
         else:
             sine_func = lambda x: np.concatenate((np.sin(x[:, 2:3]), np.cos(x[:, 2:3])), axis=1)
             self.basis = lambda x: np.concatenate((poly_func(x), sine_func(x)),axis=1)
