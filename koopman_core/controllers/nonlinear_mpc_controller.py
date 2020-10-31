@@ -78,15 +78,16 @@ class NonlinearMPCController(Controller):
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
         self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
-                        warm_start=True, verbose=False, polish=True)
+                        warm_start=True, verbose=False, polish=True, check_termination=10)
 
-    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-2, max_iter=1):
+    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
         iter = 0
         self.cur_z = z_init_0
         self.cur_u = u_init_0
         u_prev = np.zeros_like(u_init_0)
 
-        while (iter == 0 or np.linalg.norm(u_prev-self.cur_u) > eps) and iter < max_iter:
+        while (iter == 0 or np.linalg.norm(u_prev-self.cur_u)/np.linalg.norm(u_prev) > eps) and iter < max_iter:
+            #print(np.linalg.norm(u_prev), np.linalg.norm(u_prev-self.cur_u)/np.linalg.norm(u_prev))
             t0 = time.time()
             u_prev = self.cur_u.copy()
             z_init = self.cur_z.copy()
@@ -116,7 +117,7 @@ class NonlinearMPCController(Controller):
     def solve_mpc_(self, z_init, u_init):
         self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
         # TODO (comp time optimzation): Store flat z_init, u_init and update directly
-        self.prob.warm_start(x=np.hstack((z_init, u_init)))
+        #self.prob.warm_start(x=np.zeros_like(np.hstack((z_init, u_init)))) #TODO: Initialize at QP sol, not x_init + qp sol...
         self.res = self.prob.solve()
         dz = self.res.x[:(self.N+1)*self.nx].reshape(self.nx,self.N+1, order='F')
         du = self.res.x[(self.N+1)*self.nx:].reshape(self.nu,self.N, order='F')
@@ -197,7 +198,6 @@ class NonlinearMPCController(Controller):
         self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - x_init_flat
 
         if self.terminal_constraint:
-            #self._osqp_l[-self.ns:] = self.xr - x_init[:,-1]
             self._osqp_l[-self.ns:] = self.xr - x_init_flat[-self.ns:]
             self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
 
