@@ -339,7 +339,7 @@ B_0 = np.array([np.dot(b,z0) for b in koop_bilinear_sys.B]).T
 
 init_sys = LinearLiftedDynamics(A_0, B_0, C, koop_bilinear_sys.basis)
 
-controller_koop = MPCController(init_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt)
+controller_koop = MPCController(init_sys, traj_length, dt, umin, umax, xmin, xmax, np.zeros_like(Q_mpc), R_mpc, Q_mpc, set_pt, add_slack=True)
 controller_koop.eval(x0,0.)
 xr_koop = koop_bilinear_sys.C@controller_koop.parse_result()
 ur_koop = controller_koop.get_control_prediction()

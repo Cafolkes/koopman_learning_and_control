@@ -9,11 +9,13 @@ class BilinearMPCController(NonlinearMPCController):
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
-                 terminal_constraint=False):
+                 terminal_constraint=False, add_slack=False, q_slack=1e-4):
 
         NonlinearMPCController.__init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
                                         const_offset=const_offset,
-                                        terminal_constraint=terminal_constraint)
+                                        terminal_constraint=terminal_constraint,
+                                        add_slack=add_slack,
+                                        q_slack=q_slack)
 
         self.A_flat = self.dynamics_object.A.flatten(order='F')
         self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B])

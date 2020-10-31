@@ -12,7 +12,7 @@ class NonlinearMPCController(Controller):
 
     Quadratic programs are solved using OSQP.
     """
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None, terminal_constraint=False):
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None, terminal_constraint=False, add_slack=False, q_slack=1e4):
         """__init__ Create an MPC controller
         
         Arguments:
@@ -58,6 +58,9 @@ class NonlinearMPCController(Controller):
         self.xr = xr
         self.ns = xr.shape[0]
         self.terminal_constraint = terminal_constraint
+
+        self.add_slack = add_slack
+        self.Q_slack = q_slack * sparse.eye(self.ns * (self.N))
 
         self.comp_time = []
         self.x_iter = []
@@ -130,19 +133,36 @@ class NonlinearMPCController(Controller):
         self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
         self.res = self.prob.solve()
         self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
-        self.du_flat = self.res.x[(self.N + 1) * self.nx:]
+        self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu*self.N]
 
     def construct_objective_(self):
         # Quadratic objective:
-        self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
-                                          self.C.T @ self.QN @ self.C,
-                                          sparse.kron(sparse.eye(self.N), self.R)], format='csc')
+
+        if not self.add_slack:
+            self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
+                                              self.C.T @ self.QN @ self.C,
+                                              sparse.kron(sparse.eye(self.N), self.R)], format='csc')
+
+        else:
+            self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
+                                              self.C.T @ self.QN @ self.C,
+                                              sparse.kron(sparse.eye(self.N), self.R),
+                                              self.Q_slack], format='csc')
 
         # Linear objective:
-        self._osqp_q = np.hstack(
-            [(self.C.T @ self.Q@(self.C@self.z_init[:-1,:].T-self.xr.reshape(-1,1))).flatten(order='F'),
-             self.C.T @ self.QN@(self.C@self.z_init[-1,:] - self.xr),
-             (self.R@self.u_init.T).flatten(order='F')])
+        if not self.add_slack:
+            self._osqp_q = np.hstack(
+                [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
+                 self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
+                 (self.R @ self.u_init.T).flatten(order='F')])
+
+        else:
+            self._osqp_q = np.hstack(
+                [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
+                 self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
+                 (self.R @ self.u_init.T).flatten(order='F'),
+                 np.zeros(self.ns * (self.N))])
+
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         # Linear dynamics constraints:
@@ -151,13 +171,30 @@ class NonlinearMPCController(Controller):
         Ax = -sparse.eye((self.N+1)*self.nx) + A_dyn
         Bu = sparse.vstack((sparse.csc_matrix((self.nx,self.N*self.nu)),
                             sparse.block_diag(B_lst)))
-        Aeq = sparse.hstack([Ax, Bu])
 
-        # Input constraints:
-        Aineq_u = sparse.hstack([sparse.csc_matrix((self.N*self.nu,(self.N+1)*self.nx)), sparse.eye(self.N*self.nu)])
+        if not self.add_slack:
+            # Input constraints:
+            Aineq_u = sparse.hstack(
+                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)), sparse.eye(self.N * self.nu)])
 
-        # State constraints:
-        Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N+1),self.C), sparse.csc_matrix(((self.N+1)*self.ns, self.N*self.nu))])
+            # State constraints:
+            Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N + 1), self.C),
+                                     sparse.csc_matrix(((self.N + 1) * self.ns, self.N * self.nu))])
+
+            Aeq = sparse.hstack([Ax, Bu])
+        else:
+            # Input constraints:
+            Aineq_u = sparse.hstack(
+                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)),
+                 sparse.eye(self.N * self.nu),
+                 sparse.csc_matrix((self.nu*self.N, self.ns*self.N))])
+
+            # State constraints:
+            Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N + 1), self.C),
+                                     sparse.csc_matrix(((self.N + 1) * self.ns, self.N * self.nu)),
+                                     sparse.vstack([sparse.eye(self.ns*self.N), sparse.csc_matrix((self.ns,self.ns*self.N))])])
+
+            Aeq = sparse.hstack([Ax, Bu, sparse.csc_matrix((self.nx*(self.N+1), self.ns*(self.N)))])
 
         self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
 
@@ -210,7 +247,8 @@ class NonlinearMPCController(Controller):
             self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
 
     def update_objective_(self):
-        self._osqp_q = np.hstack(
+        # TODO: Change with direct memory allocation:
+        self._osqp_q[:self.nx*(self.N+1)+self.nu*self.N] = np.hstack(
             [(self.C.T @ self.Q @ (self.x_init[:,:-1] - self.xr.reshape(-1, 1))).flatten(order='F'),
              self.C.T @ self.QN @ (self.x_init[:,-1] - self.xr),
              (self.R @ self.u_init.T).flatten(order='F')])
@@ -240,6 +278,11 @@ class NonlinearMPCController(Controller):
                 data.append(np.hstack((B_lst[t][:,i], np.ones(1))))
                 B_inds.append(np.arange(start_ind_B, start_ind_B + self.nx))
                 start_ind_B += self.nx + 1
+
+        # Slack variables:
+        for t in range(self.N):
+            for i in range(self.ns):
+                data.append(np.ones(1))
 
         flat_data = []
         for arr in data:
