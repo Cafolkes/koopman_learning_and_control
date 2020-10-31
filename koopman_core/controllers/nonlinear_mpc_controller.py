@@ -336,10 +336,8 @@ class NonlinearMPCController(Controller):
         self.u_init_flat[:-self.nu] = self.u_init_flat[self.nu:]
         self.u_init_flat[-self.nu:] = u_new
 
-        self.x_init[:,:-1] = self.x_init[:, 1:]
-        self.x_init[:,-1] = self.C@z_new
-        self.x_init_flat[:-self.ns] = self.x_init_flat[self.ns:]
-        self.x_init_flat[-self.ns:] = self.x_init[:,-1]
+        self.x_init = self.C @ self.z_init.T
+        self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
         #du_new = self.du_flat[-self.nu:]

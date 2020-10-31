@@ -82,8 +82,6 @@ class SystemDynamics(Dynamics):
             us[j] = u
             u = controller.process(u)
             xs[j + 1] = self.step(x, u, t, ts[j + 1])
-            #print('Progress: ', t/ts[-1]*100, ' percent ')
-            print(xs[j+1])
         if processed:
             us = array([controller.process(u) for u in us])
 
