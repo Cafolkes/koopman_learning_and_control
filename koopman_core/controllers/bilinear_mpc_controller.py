@@ -9,11 +9,13 @@ class BilinearMPCController(NonlinearMPCController):
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
-                 terminal_constraint=False):
+                 terminal_constraint=False, add_slack=False, q_slack=1e-4):
 
         NonlinearMPCController.__init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
                                         const_offset=const_offset,
-                                        terminal_constraint=terminal_constraint)
+                                        terminal_constraint=terminal_constraint,
+                                        add_slack=add_slack,
+                                        q_slack=q_slack)
 
         self.A_flat = self.dynamics_object.A.flatten(order='F')
         self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B])
@@ -23,15 +25,15 @@ class BilinearMPCController(NonlinearMPCController):
         self._osqp_A_data[self._osqp_A_data_A_inds] = A_lst
         self._osqp_A_data[self._osqp_A_data_B_inds] = B_lst
 
-    def update_linearization_(self, z_init, u_init):
-        A_lst = u_init@self.B_flat + self.A_flat
+    def update_linearization_(self):
+        A_lst = self.u_init@self.B_flat + self.A_flat
         A_lst_flat = A_lst.flatten()
-        B_lst_flat = (z_init[:-1,:]@self.B_arr).flatten()
+        B_lst_flat = (self.z_init[:-1,:]@self.B_arr).flatten()
 
         #TODO: (Comp time optimzation) Try to further improve calculation of r_vec
         A_reshaped = A_lst.reshape(self.nx*self.N,self.nx)
-        self.r_vec[:] = (np.array([z_init[i,:]@A_reshaped[i*self.nx:(i+1)*self.nx,:]
-                                  for i in range(self.N)]) - z_init[1:,:]).flatten()
+        self.r_vec[:] = (np.array([self.z_init[i,:]@A_reshaped[i*self.nx:(i+1)*self.nx,:]
+                                  for i in range(self.N)]) - self.z_init[1:,:]).flatten()
 
         return A_lst_flat, B_lst_flat
 
