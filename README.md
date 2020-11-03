@@ -3,7 +3,7 @@ Python simulation and hardware library for Koopman based learning and control.
 
 The simulation framework of this repository is utilizing the [Learning and Control Core Library](https://github.com/learning-and-control/core).
 
-## Code examples for bilinear EDMD learning and feedback linearizing control
+## Code examples for bilinear EDMD learning and nonlinear model predictive control
 
 This repository contains code to generate the examples combining learning of control-affine dynamics with Koopman bilinear models and nonlinear model predictive control. Specifically, the code used for numerical experiments are contained in two Jupyter notebooks:
 1. bilinearizable_sys_mpc.ipynb: Code containing example of a system that has a Koopman bilinear transform that can be computed analytically, and how to design the nonlinear model predictive control law for the exact Koopman bilinear form.
