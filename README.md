@@ -5,11 +5,9 @@ The simulation framework of this repository is utilizing the [Learning and Contr
 
 ## Code examples for bilinear EDMD learning and feedback linearizing control
 
-This repository contains code to generate the examples in the paper. Specifically, the code used for numerical experiments are contained in two Jupyter notebooks:
-1. bilinearizable_sys_fl_ipynb: Code containing example of a system that has a Koopman bilinear transform that can be computed analytically, and how to design feedback linearizing control law for the exact Koopman bilinear form.
-2. planar_quadrotor_simple: Code containing planar quadrotor example with data collection, model learning, and control design. This notebook contains a simplified learning scheme for the bEDMD method that is computationally faster but does not guarantee that the learned model is feedback linearizable. In the example given the unconstrained learning problem works well, and adding the non-singularity constraint does not improve performance.
-
-In addiiton to the executable Jupyter Notebooks, the repository contains HTML-files of the notebooks that present the code and results from running it without the need to set up the virtual environment and installing the required packages.
+This repository contains code to generate the examples combining learning of control-affine dynamics with Koopman bilinear models and nonlinear model predictive control. Specifically, the code used for numerical experiments are contained in two Jupyter notebooks:
+1. bilinearizable_sys_mpc.ipynb: Code containing example of a system that has a Koopman bilinear transform that can be computed analytically, and how to design the nonlinear model predictive control law for the exact Koopman bilinear form.
+2. planar_quadrotor_learning_mpc.ipynb: Code containing planar quadrotor example with data collection, model learning, and control design. 
 
 ## macOS setup
 Set up virtual environment
