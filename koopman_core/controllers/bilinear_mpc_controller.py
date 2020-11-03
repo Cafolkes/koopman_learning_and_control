@@ -1,6 +1,7 @@
-from koopman_core.controllers import NonlinearMPCController
 import numpy as np
-import time
+
+from koopman_core.controllers import NonlinearMPCController
+
 
 class BilinearMPCController(NonlinearMPCController):
     """
@@ -10,7 +11,6 @@ class BilinearMPCController(NonlinearMPCController):
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
                  terminal_constraint=False, add_slack=False, q_slack=1e-4):
-
         NonlinearMPCController.__init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
                                         const_offset=const_offset,
                                         terminal_constraint=terminal_constraint,
@@ -26,15 +26,13 @@ class BilinearMPCController(NonlinearMPCController):
         self._osqp_A_data[self._osqp_A_data_B_inds] = B_lst
 
     def update_linearization_(self):
-        A_lst = self.u_init@self.B_flat + self.A_flat
+        A_lst = self.u_init @ self.B_flat + self.A_flat
         A_lst_flat = A_lst.flatten()
-        B_lst_flat = (self.z_init[:-1,:]@self.B_arr).flatten()
+        B_lst_flat = (self.z_init[:-1, :] @ self.B_arr).flatten()
 
-        #TODO: (Comp time optimzation) Try to further improve calculation of r_vec
-        A_reshaped = A_lst.reshape(self.nx*self.N,self.nx)
-        self.r_vec[:] = (np.array([self.z_init[i,:]@A_reshaped[i*self.nx:(i+1)*self.nx,:]
-                                  for i in range(self.N)]) - self.z_init[1:,:]).flatten()
+        # TODO: (Comp time optimzation) Try to further improve calculation of r_vec
+        A_reshaped = A_lst.reshape(self.nx * self.N, self.nx)
+        self.r_vec[:] = (np.array([self.z_init[i, :] @ A_reshaped[i * self.nx:(i + 1) * self.nx, :]
+                                   for i in range(self.N)]) - self.z_init[1:, :]).flatten()
 
         return A_lst_flat, B_lst_flat
-
-
