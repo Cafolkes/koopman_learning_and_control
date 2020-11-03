@@ -1,8 +1,8 @@
 from numpy import dot, zeros, array, sum
-from core.dynamics import AffineDynamics, SystemDynamics
-from koopman_core.learning.bilinear_edmd import BilinearEdmd
 
-#class BilinearLiftedDynamics(SystemDynamics, AffineDynamics, BilinearEdmd):
+from core.dynamics import AffineDynamics, SystemDynamics
+
+
 class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     """Class for unconstrained bilinear dynamics
 
@@ -13,14 +13,18 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     """
 
     def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None):
-        """Create a RoboticDynamics object.
-
-        Inputs:
-        Configuration space dimension, n: int
-        Action space dimension, m: int
-        Unactuated dynamics matrix, F: array (n,n)
-        Actuated dynamics matrix, G: list(array(n,n))
         """
+        Initialize bilinear lifted dynamics class
+        :param n: (int) State dimension
+        :param m: (int) Actuation dimension
+        :param A: (np.array) Lifted dynamics matrix (autonomous part)
+        :param B: (list(np.array)) List of lifted dynamics matrices (actuated part)
+        :param C: (np.array) Projection matrix
+        :param basis: (lambda function) Function dictionary
+        :param continuous_mdl: (boolean) System matrices provided are for continuous dynamics
+        :param dt: (float) Sampling interval for discrete-time dynamics
+        """
+
 
         assert m == len(B)
         assert n == A.shape[0]
