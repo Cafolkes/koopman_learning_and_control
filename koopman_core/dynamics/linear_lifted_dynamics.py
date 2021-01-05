@@ -12,7 +12,11 @@ class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics)
         Input matrix, B: numpy array
         """
 
-        n, m = B.shape
+        if B is not None:
+            n, m = B.shape
+        else:
+            n, m = A.shape[0], -1
+
         assert A.shape == (n, n)
 
         SystemDynamics.__init__(self, n, m)
@@ -29,6 +33,12 @@ class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics)
 
     def act(self, x, t):
         return self.B
+
+    def eval_dot(self, x, u, t):
+        if self.B is None:
+            return self.drift(x,t)
+        else:
+            return AffineDynamics.eval_dot(self, x, u, t)
 
     def linear_system(self):
         return self.A, self.B
