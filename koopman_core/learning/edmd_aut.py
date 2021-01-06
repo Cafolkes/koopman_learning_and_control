@@ -109,7 +109,7 @@ class Edmd_aut():
         Returns:
             numpy array [Ns,Nt] -- Az+Bu in z_dot = Az+Bu
         """
-        return np.dot(self.C, np.dot(self.A, x))
+        pass
 
     def score(self, x, u):
         pass
