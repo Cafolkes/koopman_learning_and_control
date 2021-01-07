@@ -20,23 +20,25 @@ class KoopmanNetAut(nn.Module):
     def forward(self, data):
         # data = [x, x_prime]
         # output = [x_pred, x_prime_pred, lin_error]
-
-        x = data[:, :self.net_params['state_dim']]
-        x_prime = data[:, self.net_params['state_dim']:]
+        n = self.net_params['state_dim']
+        x = data[:, :n]
+        x_prime = data[:, n:]
 
         # Define autoencoder networks:
         z = self.encode_forward_(x)
         x_pred = self.decode_forward_(z)
 
         # Define linearity networks:
-        z_prime_pred = self.koopman_fc(z)
+        #z_prime_pred = self.koopman_fc(z)
+        z_prime_pred = z + self.koopman_fc(z)
         z_prime = self.encode_forward_(x_prime)
-        lin_error = z_prime - z_prime_pred
+        #lin_error = z_prime - z_prime_pred  # TODO: Reinsert
 
         # Define prediction network:
         x_prime_pred = self.decode_forward_(z_prime_pred)
 
-        outputs = torch.cat((x_pred, x_prime_pred, lin_error), 1)
+        #outputs = torch.cat((x_pred, x_prime_pred, lin_error), 1) # TODO: Reinsert
+        outputs = torch.cat((x_pred, x_prime_pred, z_prime_pred, z_prime), 1)
 
         return outputs
 
@@ -45,27 +47,35 @@ class KoopmanNetAut(nn.Module):
         # labels = [x, x_prime], penalize when lin_error is not zero
 
         n = self.net_params['state_dim']
+        n_encode = self.net_params['encoder_output_dim']
         x_pred, x = outputs[:,:n], labels[:, :n]
         x_prime_pred, x_prime = outputs[:, n:2*n], labels[:, n:]
-        lin_error, zero_lin_error = outputs[:, 2*n:], torch.zeros_like(outputs[:, 2*n:])
+        #lin_error, zero_lin_error = outputs[:, 2*n:], torch.zeros_like(outputs[:, 2*n:])  # TODO: Reinsert
+        z_prime_pred, z_prime = outputs[:, 2*n:2*n+n_encode], outputs[:, 2*n+n_encode:]
+
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
         autoencoder_loss = criterion(x_pred, x)
         pred_loss = criterion(x_prime_pred, x_prime)
-        lin_loss = criterion(lin_error, zero_lin_error)
-        return autoencoder_loss + pred_loss + alpha*lin_loss
+        #pred_loss = criterion(x + x_prime_pred, x_prime)  #TODO: Verify
+        #lin_loss = criterion(lin_error, zero_lin_error)  #TODO: Reinsert
+        lin_loss = criterion(z_prime_pred, z_prime)
+
+        total_loss = autoencoder_loss + pred_loss + alpha*lin_loss
+        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
+            pass
+        return total_loss
 
     def construct_encoder_(self):
         input_dim = self.net_params['state_dim']
         hidden_dim = self.net_params['encoder_hidden_dim']
         output_dim = self.net_params['encoder_output_dim']
 
-        self.encoder_fc_in = nn.Linear(input_dim, hidden_dim[0])
-        self.encoder_fc_hid = []
-
         if len(hidden_dim) > 0:
+            self.encoder_fc_in = nn.Linear(input_dim, hidden_dim[0])
+            self.encoder_fc_hid = []
             for ii in range(1, len(hidden_dim)):
                 self.encoder_fc_hid.append(nn.Linear(hidden_dim[ii - 1], hidden_dim[ii]))
             self.encoder_fc_out = nn.Linear(hidden_dim[-1], output_dim)
@@ -77,10 +87,9 @@ class KoopmanNetAut(nn.Module):
         hidden_dim = self.net_params['decoder_hidden_dim']
         output_dim = self.net_params['state_dim']
 
-        self.decoder_fc_in = nn.Linear(input_dim, hidden_dim[0])
-        self.decoder_fc_hid = []
-
         if len(hidden_dim) > 0:
+            self.decoder_fc_in = nn.Linear(input_dim, hidden_dim[0])
+            self.decoder_fc_hid = []
             for ii in range(1, len(hidden_dim)):
                 self.decoder_fc_hid.append(nn.Linear(hidden_dim[ii - 1], hidden_dim[ii]))
             self.decoder_fc_out = nn.Linear(hidden_dim[-1], output_dim)
@@ -88,20 +97,22 @@ class KoopmanNetAut(nn.Module):
             self.decoder_fc_out = nn.Linear(input_dim, output_dim)
 
     def encode_forward_(self, x):
-        z = F.relu(self.encoder_fc_in(x))
-        for layer in self.encoder_fc_hid:
-            z = F.relu(layer(z))
-        z = self.encoder_fc_out(z)
+        if len(self.net_params['encoder_hidden_dim']) > 0:
+            x = F.relu(self.encoder_fc_in(x))
+            for layer in self.encoder_fc_hid:
+                x = F.relu(layer(x))
+        x = self.encoder_fc_out(x)
 
-        return z
+        return x
 
     def decode_forward_(self, z):
-        x_pred = F.relu(self.decoder_fc_in(z))
-        for layer in self.decoder_fc_hid:
-            x_pred = F.relu(layer(x_pred))
-        x_pred = self.decoder_fc_out(x_pred)
+        if len(self.net_params['decoder_hidden_dim']) > 0:
+            z = F.relu(self.decoder_fc_in(z))
+            for layer in self.decoder_fc_hid:
+                z = F.relu(layer(z))
+        z = self.decoder_fc_out(z)
 
-        return x_pred
+        return z
 
     def encode(self, x):
         self.eval()

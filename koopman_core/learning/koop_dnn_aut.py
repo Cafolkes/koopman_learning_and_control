@@ -50,7 +50,7 @@ class KoopDnnAut():
 
                 running_loss += loss.item()
                 if i % 2000 == 199:  # print every 2000 mini-batches
-                    print('[%d, %5d] loss: %.6f' %
+                    print('[%d, %5d] loss: %.8f' %
                           (epoch + 1, i + 1, running_loss / 2000))
                     running_loss = 0.0
 
@@ -59,6 +59,9 @@ class KoopDnnAut():
 
     def construct_dyn_mat_(self):
         self.A = self.koopman_net.koopman_fc.weight.data.numpy().T
+        self.A += np.eye(self.A.shape[0])
+
+        #self.C = self.koopman_net.decoder_fc_out.weight.data.numpy().T
 
     def construct_basis_(self):
         self.basis_encode = lambda x: self.koopman_net.encode(np.atleast_2d(x))
@@ -108,5 +111,6 @@ class KoopDnnAut():
             self.optimizer = optim.SGD(self.koopman_net.parameters(), lr=lr, momentum=momentum)
         elif self.net_params['optimizer'] == 'adam':
             lr = self.net_params['lr']
-            self.optimizer = optim.Adam(self.koopman_net.parameters(), lr=lr)
+            weight_decay = self.net_params['weight_decay']
+            self.optimizer = optim.Adam(self.koopman_net.parameters(), lr=lr, weight_decay=weight_decay)
         # TODO: Implement other optimizers as needed
