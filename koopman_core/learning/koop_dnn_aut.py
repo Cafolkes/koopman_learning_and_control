@@ -13,12 +13,12 @@ class KoopDnnAut():
                  continuous_mdl=False, dt=None):
         self.n_traj = n_traj
         self.A = None
-        self.C = C
 
         self.net_params = net_params
         self.koopman_net = KoopmanNetAut(self.net_params)
         self.optimizer = None
         self.set_optimizer_()
+        self.C = self.koopman_net.C.data.numpy()
 
         self.first_obs_const = first_obs_const
         self.cv = cv
@@ -93,7 +93,7 @@ class KoopDnnAut():
             x_flat, x_prime_flat = self.standardizer.transform(x_flat.T), x_prime_flat.T
 
         X = np.concatenate((x_flat, x_prime_flat), axis=1)
-        return X[::downsample_rate,:], X[::downsample_rate,:]
+        return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]
 
     def predict(self, x):
         pass

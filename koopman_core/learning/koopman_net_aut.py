@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 class KoopmanNetAut(nn.Module):
     def __init__(self, net_params):
@@ -11,11 +12,16 @@ class KoopmanNetAut(nn.Module):
         self.decoder = None
         self.construct_net()
 
+        n = self.net_params['state_dim']
+        n_encode = self.net_params['encoder_output_dim']
+        self.C = torch.cat((torch.eye(n), torch.zeros((n, n_encode))), 1)
+
     def construct_net(self):
         self.construct_encoder_()
-        self.construct_decoder_()
+        #self.construct_decoder_()
 
-        self.koopman_fc = nn.Linear(self.net_params['encoder_output_dim'], self.net_params['encoder_output_dim'], bias=False)  #TODO: Evaluate how to handle bias
+        n_tot = self.net_params['state_dim'] + self.net_params['encoder_output_dim']
+        self.koopman_fc = nn.Linear(n_tot, n_tot, bias=False)  #TODO: Evaluate how to handle bias
 
     def forward(self, data):
         # data = [x, x_prime]
@@ -25,20 +31,16 @@ class KoopmanNetAut(nn.Module):
         x_prime = data[:, n:]
 
         # Define autoencoder networks:
-        z = self.encode_forward_(x)
-        x_pred = self.decode_forward_(z)
+        z = torch.cat((x, self.encode_forward_(x)), 1)
 
         # Define linearity networks:
-        #z_prime_pred = self.koopman_fc(z)
+        z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
         z_prime_pred = z + self.koopman_fc(z)
-        z_prime = self.encode_forward_(x_prime)
-        #lin_error = z_prime - z_prime_pred  # TODO: Reinsert
 
         # Define prediction network:
-        x_prime_pred = self.decode_forward_(z_prime_pred)
+        x_prime_pred = torch.matmul(z,torch.transpose(self.C, 0, 1))
 
-        #outputs = torch.cat((x_pred, x_prime_pred, lin_error), 1) # TODO: Reinsert
-        outputs = torch.cat((x_pred, x_prime_pred, z_prime_pred, z_prime), 1)
+        outputs = torch.cat((x_prime_pred, z_prime_pred, z_prime), 1)
 
         return outputs
 
@@ -47,25 +49,20 @@ class KoopmanNetAut(nn.Module):
         # labels = [x, x_prime], penalize when lin_error is not zero
 
         n = self.net_params['state_dim']
-        n_encode = self.net_params['encoder_output_dim']
-        x_pred, x = outputs[:,:n], labels[:, :n]
-        x_prime_pred, x_prime = outputs[:, n:2*n], labels[:, n:]
-        #lin_error, zero_lin_error = outputs[:, 2*n:], torch.zeros_like(outputs[:, 2*n:])  # TODO: Reinsert
-        z_prime_pred, z_prime = outputs[:, 2*n:2*n+n_encode], outputs[:, 2*n+n_encode:]
-
+        n_tot = n + self.net_params['encoder_output_dim']
+        x_prime_pred, x_prime = outputs[:, :n], labels
+        z_prime_pred, z_prime = outputs[:, n:n+n_tot], outputs[:, n+n_tot:]
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        autoencoder_loss = criterion(x_pred, x)
         pred_loss = criterion(x_prime_pred, x_prime)
-        #pred_loss = criterion(x + x_prime_pred, x_prime)  #TODO: Verify
-        #lin_loss = criterion(lin_error, zero_lin_error)  #TODO: Reinsert
         lin_loss = criterion(z_prime_pred, z_prime)
 
-        total_loss = autoencoder_loss + pred_loss + alpha*lin_loss
-        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
-            pass
+        total_loss = pred_loss + alpha * lin_loss
+        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
+            for ii in range(n_tot):
+                total_loss += torch.norm(self.koopman_fc.weight[ii, :], p=1)
         return total_loss
 
     def construct_encoder_(self):
@@ -82,6 +79,22 @@ class KoopmanNetAut(nn.Module):
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
+    def encode_forward_(self, x):
+        if len(self.net_params['encoder_hidden_dim']) > 0:
+            x = F.relu(self.encoder_fc_in(x))
+            for layer in self.encoder_fc_hid:
+                x = F.relu(layer(x))
+        x = self.encoder_fc_out(x)
+
+        return x
+
+    def encode(self, x):
+        self.eval()
+        x_t = torch.from_numpy(x).float()
+        z = np.concatenate((x, self.encode_forward_(x_t).detach().numpy()), axis=1)
+        return z
+
+'''
     def construct_decoder_(self):
         input_dim = self.net_params['encoder_output_dim']
         hidden_dim = self.net_params['decoder_hidden_dim']
@@ -96,15 +109,6 @@ class KoopmanNetAut(nn.Module):
         else:
             self.decoder_fc_out = nn.Linear(input_dim, output_dim)
 
-    def encode_forward_(self, x):
-        if len(self.net_params['encoder_hidden_dim']) > 0:
-            x = F.relu(self.encoder_fc_in(x))
-            for layer in self.encoder_fc_hid:
-                x = F.relu(layer(x))
-        x = self.encoder_fc_out(x)
-
-        return x
-
     def decode_forward_(self, z):
         if len(self.net_params['decoder_hidden_dim']) > 0:
             z = F.relu(self.decoder_fc_in(z))
@@ -114,14 +118,9 @@ class KoopmanNetAut(nn.Module):
 
         return z
 
-    def encode(self, x):
-        self.eval()
-        x = torch.from_numpy(x).float()
-        z = self.encode_forward_(x)
-        return z.detach().numpy()
-
     def decode(self, z):
         self.eval()
         z = torch.from_numpy(z).float()
         x = self.decode_forward_(z)
         return x.detach().numpy()
+'''
