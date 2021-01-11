@@ -58,7 +58,7 @@ class KoopDnnAut():
         self.construct_basis_()
 
     def construct_dyn_mat_(self):
-        self.A = self.koopman_net.koopman_fc.weight.data.numpy().T
+        self.A = self.koopman_net.koopman_fc.weight.data.numpy()
         self.A += np.eye(self.A.shape[0])
 
         #self.C = self.koopman_net.decoder_fc_out.weight.data.numpy().T

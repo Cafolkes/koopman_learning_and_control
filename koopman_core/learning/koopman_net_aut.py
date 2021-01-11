@@ -61,8 +61,13 @@ class KoopmanNetAut(nn.Module):
 
         total_loss = pred_loss + alpha * lin_loss
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
-            for ii in range(n_tot):
-                total_loss += torch.norm(self.koopman_fc.weight[ii, :], p=1)
+            l1_reg = self.net_params['l1_reg']
+            print('l1 shape', self.koopman_fc.weight.view(-1).shape)
+            print('l1 shape', self.koopman_fc.weight.flatten().shape)
+            total_loss += l1_reg * torch.norm(self.koopman_fc.weight.flatten(), p=1)
+            #total_loss += l1_reg*torch.norm(self.koopman_fc.weight, p=1)
+
+        #print(total_loss)
         return total_loss
 
     def construct_encoder_(self):
