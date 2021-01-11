@@ -78,21 +78,31 @@ class KoopDnnAut():
         assert data.shape[0] == self.n_traj
         assert data.shape[2] == n
 
-        x = data[:,:-1,:]
-        x_prime = data[:,1:,:]
+        traj_length = data.shape[1]
+        n_multistep = self.net_params['n_multistep']
+        x = np.zeros((self.n_traj, traj_length-n_multistep, n*n_multistep))
+        x_prime = np.zeros((self.n_traj, traj_length - n_multistep, n * n_multistep))
+        for ii in range(n_multistep):
+            x[:, :, n*ii:n*(ii+1)] = data[:, ii:-(n_multistep-ii), :]
+            if ii + 1 < n_multistep:
+                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:-(n_multistep - ii - 1), :]
+            else:
+                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:, :]
 
         order = 'F'
-        n_data_pts = self.n_traj * (t[0,:].shape[0] - 1)
-        x_flat = x.T.reshape((n, n_data_pts), order=order)
-        x_prime_flat = x_prime.T.reshape((n, n_data_pts), order=order)
+        n_data_pts = self.n_traj * (t[0,:].shape[0] - n_multistep)
+        x_flat = x.T.reshape((n*n_multistep, n_data_pts), order=order)
+        x_prime_flat = x_prime.T.reshape((n*n_multistep, n_data_pts), order=order)
 
         if self.standardizer is None:
             x_flat, x_prime_flat = x_flat.T, x_prime_flat.T
         else:
-            self.standardizer.fit(x_flat.T)
-            x_flat, x_prime_flat = self.standardizer.transform(x_flat.T), x_prime_flat.T
+            pass
+            #self.standardizer.fit(x_flat.T)
+            #x_flat, x_prime_flat = self.standardizer.transform(x_flat.T), x_prime_flat.T
 
         X = np.concatenate((x_flat, x_prime_flat), axis=1)
+
         return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]
 
     def predict(self, x):
