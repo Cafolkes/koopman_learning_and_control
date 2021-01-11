@@ -27,18 +27,22 @@ class KoopmanNetAut(nn.Module):
         # data = [x, x_prime]
         # output = [x_pred, x_prime_pred, lin_error]
         n = self.net_params['state_dim']
-        x = data[:, :n]
-        x_prime = data[:, n:]
+        n_multistep = self.net_params['n_multistep']
+        x_vec = data[:, :n*n_multistep]
+        x_prime_vec = data[:, n*n_multistep:]
 
         # Define autoencoder networks:
+        x = x_vec[:, :n]
         z = torch.cat((x, self.encode_forward_(x)), 1)
 
         # Define linearity networks:
-        z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
-        z_prime_pred = z + self.koopman_fc(z)
+        n_tot = n + self.net_params['encoder_output_dim']
+        z_prime = torch.tensor([torch.cat((x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)])
+        #z_prime_pred = z + self.koopman_fc(z)
+        z_prime_pred = torch.tensor([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)])
 
         # Define prediction network:
-        x_prime_pred = torch.matmul(z,torch.transpose(self.C, 0, 1))
+        x_prime_pred = torch.tensor([torch.matmul(z,torch.transpose(self.C, 0, 1)) ])  # TODO: Continue
 
         outputs = torch.cat((x_prime_pred, z_prime_pred, z_prime), 1)
 
