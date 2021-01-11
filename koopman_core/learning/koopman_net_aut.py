@@ -38,7 +38,8 @@ class KoopmanNetAut(nn.Module):
         z_prime_pred = z + self.koopman_fc(z)
 
         # Define prediction network:
-        x_prime_pred = torch.matmul(z,torch.transpose(self.C, 0, 1))
+        #x_prime_pred = torch.matmul(z,torch.transpose(self.C, 0, 1))
+        x_prime_pred = torch.matmul(z_prime_pred, torch.transpose(self.C, 0, 1))
 
         outputs = torch.cat((x_prime_pred, z_prime_pred, z_prime), 1)
 
@@ -62,8 +63,6 @@ class KoopmanNetAut(nn.Module):
         total_loss = pred_loss + alpha * lin_loss
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
             l1_reg = self.net_params['l1_reg']
-            print('l1 shape', self.koopman_fc.weight.view(-1).shape)
-            print('l1 shape', self.koopman_fc.weight.flatten().shape)
             total_loss += l1_reg * torch.norm(self.koopman_fc.weight.flatten(), p=1)
             #total_loss += l1_reg*torch.norm(self.koopman_fc.weight, p=1)
 
