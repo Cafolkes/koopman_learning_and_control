@@ -83,8 +83,11 @@ class KoopDnnAut():
         x = np.zeros((self.n_traj, traj_length-n_multistep, n*n_multistep))
         x_prime = np.zeros((self.n_traj, traj_length - n_multistep, n * n_multistep))
         for ii in range(n_multistep):
-            x[:, :, n*ii:n*(n+1)] = data[:, ii:-ii-1, :]
-            x_prime[:, :, n*ii:n*(n+1)] = data[:, ii+1:-ii, :]
+            x[:, :, n*ii:n*(ii+1)] = data[:, ii:-(n_multistep-ii), :]
+            if ii + 1 < n_multistep:
+                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:-(n_multistep - ii - 1), :]
+            else:
+                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:, :]
 
         order = 'F'
         n_data_pts = self.n_traj * (t[0,:].shape[0] - n_multistep)

@@ -37,12 +37,11 @@ class KoopmanNetAut(nn.Module):
 
         # Define linearity networks:
         n_tot = n + self.net_params['encoder_output_dim']
-        z_prime = torch.tensor([torch.cat((x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)])
-        #z_prime_pred = z + self.koopman_fc(z)
-        z_prime_pred = torch.tensor([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)])
+        z_prime = torch.cat([torch.cat((x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)], 1)
+        z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
 
         # Define prediction network:
-        x_prime_pred = torch.tensor([torch.matmul(z,torch.transpose(self.C, 0, 1)) ])  # TODO: Continue
+        x_prime_pred = torch.cat([torch.matmul(z_prime_pred[:,n_tot*ii:n_tot*(ii+1)], torch.transpose(self.C, 0, 1)) for ii in range(n_multistep)], 1)
 
         outputs = torch.cat((x_prime_pred, z_prime_pred, z_prime), 1)
 
@@ -54,14 +53,15 @@ class KoopmanNetAut(nn.Module):
 
         n = self.net_params['state_dim']
         n_tot = n + self.net_params['encoder_output_dim']
-        x_prime_pred, x_prime = outputs[:, :n], labels
-        z_prime_pred, z_prime = outputs[:, n:n+n_tot], outputs[:, n+n_tot:]
+        n_multistep = self.net_params['n_multistep']
+        x_prime_pred, x_prime = outputs[:, :n*n_multistep], labels
+        z_prime_pred, z_prime = outputs[:, n*n_multistep:n*n_multistep+n_tot*n_multistep], outputs[:, n*n_multistep+n_tot*n_multistep:]
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        pred_loss = criterion(x_prime_pred, x_prime)
-        lin_loss = criterion(z_prime_pred, z_prime)
+        pred_loss = criterion(x_prime_pred, x_prime)/n_multistep
+        lin_loss = criterion(z_prime_pred, z_prime)/n_multistep
 
         total_loss = pred_loss + alpha * lin_loss
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
