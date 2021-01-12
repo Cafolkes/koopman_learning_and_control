@@ -69,7 +69,6 @@ class KoopmanNetAut(nn.Module):
             total_loss += l1_reg * torch.norm(self.koopman_fc.weight.flatten(), p=1)
             #total_loss += l1_reg*torch.norm(self.koopman_fc.weight, p=1)
 
-        #print(total_loss)
         return total_loss
 
     def construct_encoder_(self):
