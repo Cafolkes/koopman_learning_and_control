@@ -13,7 +13,10 @@ class BilinearEdmd(Edmd):
 
     def fit(self, X, y, cv=False, override_kinematics=False, first_obs_const=True):
         if not self.continuous_mdl:
-            y = y - self.standardizer.inverse_transform(X)[:,:self.n_lift]
+            if self.standardizer is None:
+                y = y - X[:, :self.n_lift]
+            else:
+                y = y - self.standardizer.inverse_transform(X)[:,:self.n_lift]
 
         if override_kinematics:
             y = y[:, int(self.n / 2) + int(self.first_obs_const):]
