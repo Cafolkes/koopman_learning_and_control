@@ -41,6 +41,7 @@ class KoopmanNet(nn.Module):
         m = self.net_params['ctrl_dim']
         n_multistep = self.net_params['n_multistep']
         first_obs_const = self.net_params['first_obs_const']
+        dt = self.net_params['dt']
 
         x_vec = data[:, :n*n_multistep]
         u_vec = data[:, n*n_multistep:n*n_multistep+m*n_multistep]
@@ -52,28 +53,55 @@ class KoopmanNet(nn.Module):
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
             z = torch.cat((torch.ones((x.shape[0], 1)), x, self.encode_forward_(x)), 1)
-            z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
-            #z_prime = torch.cat([torch.cat(
-            #    (torch.ones((x_prime_vec.shape[0],1)),
-            #     x_prime_vec[:, n * ii:n * (ii + 1)], self.encode_forward_(x_prime_vec[:, n * ii:n * (ii + 1)])), 1) for
-            #    ii in range(n_multistep)], 1)
+            #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
+            z_prime = torch.cat([torch.cat(
+                (torch.ones((x_prime_vec.shape[0],1)),
+                 x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
+                ii in range(n_multistep)], 1)
         else:
             z = torch.cat((x, self.encode_forward_(x)), 1)
-            z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
-            #z_prime = torch.cat([torch.cat(
-            #    (x_prime_vec[:, n * ii:n * (ii + 1)], self.encode_forward_(x_prime_vec[:, n * ii:n * (ii + 1)])), 1) for
-            #                     ii in range(n_multistep)], 1)
+            #z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
+            z_prime = torch.cat([torch.cat(
+                (x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for
+                                 ii in range(n_multistep)], 1)
         #z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc_drift.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
 
-        z_u = torch.cat([torch.transpose(torch.mul(torch.transpose(z,0,1), u), 0,1) for u in torch.transpose(u_vec,0,1)], 1)
+        #z_u = torch.cat([torch.transpose(torch.mul(torch.transpose(z,0,1), u), 0,1) for u in torch.transpose(u_vec,0,1)], 1)
 
+        #z_pred = torch.zeros((z.shape[0], n_tot*(n_multistep+1)))
+        z_pred = z
+        z_prime_pred = torch.empty((z.shape[0],0))
+        #z_u_pred = torch.zeros((z_prime_pred.shape[0], m*n_tot*n_multistep))
+        z_u_pred = torch.cat(
+            [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u), 0, 1) for u in torch.transpose(u_vec, 0, 1)], 1)
         if self.net_params['override_kinematics']:
-            z_prime_pred = z[:, int(self.net_params['first_obs_const'])+int(n/2):] + self.koopman_fc_drift(z) + self.koopman_fc_act(z_u)
-            z_prime_pred = torch.cat((torch.ones((x_prime.shape[0], 1)), x[:, :int(n/2)] + x[:,int(n/2):]*self.net_params['dt'], z_prime_pred), 1)
-        else:
-            z_prime_pred = z + self.koopman_fc_drift(z) + self.koopman_fc_act(z_u)
+            for kk in range(n_multistep):
+                z_prime_pred_tmp = z_pred[:, n_tot * kk + int(first_obs_const) + int(n / 2):n_tot * (kk + 1)] \
+                                   + self.koopman_fc_drift(z_pred[:, n_tot * kk:n_tot * (kk + 1)]) \
+                                   + self.koopman_fc_act(z_u_pred[:, m * n_tot * kk:m * n_tot * (kk + 1)])
 
-        # TODO: Implement multi-step prediction
+                z_prime_pred = torch.cat((z_prime_pred, torch.cat((torch.ones((x_prime.shape[0], 1)),
+                                                                   z_pred[:, n_tot*kk:n_tot*kk+int(n/2)] + z_pred[:, n_tot*kk+int(n/2):n_tot*kk+n]*dt,
+                                                                   z_prime_pred_tmp), 1)), 1)
+
+                z_u_pred = torch.cat((z_u_pred, torch.cat([torch.transpose(torch.mul(torch.transpose(
+                    z_pred[:, n_tot * kk:n_tot * (kk + 1)], 0, 1), u), 0, 1) for u in
+                    torch.transpose(u_vec[:, m * kk:m * (kk + 1)], 0, 1)], 1)), 1)
+
+                if kk < n_multistep:
+                    z_pred = torch.cat((z_pred, z_prime_pred[:, n_tot * kk:n_tot * (kk + 1)]), 1)
+        else:
+            for kk in range(n_multistep):
+                z_prime_pred = torch.cat((z_prime_pred, z_pred[:, n_tot*kk:n_tot*(kk+1)] \
+                                                         + self.koopman_fc_drift(z_pred[:, n_tot*kk:n_tot*(kk+1)]) \
+                                                         + self.koopman_fc_act(z_u_pred[:, m*n_tot*kk:m*n_tot*(kk+1)])),1)
+
+                z_u_pred = torch.cat((z_u_pred, torch.cat([torch.transpose(torch.mul(torch.transpose(
+                    z_pred[:, n_tot * kk:n_tot * (kk + 1)], 0, 1), u), 0, 1) for u in
+                    torch.transpose(u_vec[:, m * kk:m * (kk + 1)], 0, 1)], 1)), 1)
+
+                if kk < n_multistep:
+                    z_pred = torch.cat((z_pred, z_prime_pred[:, n_tot*kk:n_tot*(kk+1)]),1)
 
         # Define prediction network:
         x_prime_pred = torch.cat([torch.matmul(z_prime_pred[:,n_tot*ii:n_tot*(ii+1)], torch.transpose(self.C, 0, 1)) for ii in range(n_multistep)], 1)

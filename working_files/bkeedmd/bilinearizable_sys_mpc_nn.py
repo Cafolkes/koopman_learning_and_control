@@ -427,14 +427,12 @@ net_params['batch_size'] = 16
 net_params['lin_loss_penalty'] = 5e-1/net_params['encoder_output_dim']
 net_params['weight_decay'] = 1e-3
 net_params['l1_reg'] = 0
-net_params['n_multistep'] = 1
+net_params['n_multistep'] = 10
 net_params['first_obs_const'] = True
 net_params['override_kinematics'] = True
 net_params['dt'] = dt
 
-
 # In[11]:
-
 
 n_tot = net_params['state_dim'] + net_params['encoder_output_dim'] + int(net_params['first_obs_const'])
 model_koop_dnn = KoopDnn(n_traj_dc, net_params)
