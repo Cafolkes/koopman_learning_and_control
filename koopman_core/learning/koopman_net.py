@@ -22,14 +22,21 @@ class KoopmanNet(nn.Module):
     def construct_net(self):
         self.construct_encoder_()
 
+        n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
-        n_tot = self.net_params['state_dim'] + self.net_params['encoder_output_dim'] + int(self.net_params['first_obs_const'])
-        self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
-        self.koopman_fc_act = nn.Linear(m*n_tot, n_tot, bias=False)
+        encoder_output_dim = self.net_params['encoder_output_dim']
+        first_obs_const = self.net_params['first_obs_const']
+        n_tot = n + encoder_output_dim + int(first_obs_const)
+        if self.net_params['override_kinematics']:
+            self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
+            self.koopman_fc_act = nn.Linear(m * n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
+        else:
+            self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
+            self.koopman_fc_act = nn.Linear(m * n_tot, n_tot, bias=False)
 
     def forward(self, data):
         # data = [x, u, x_prime]
-        # output = [x_pred, x_prime_pred, lin_error]
+        # output = [x_prime_pred, z_prime_pred, z_prime]
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
         n_multistep = self.net_params['n_multistep']
@@ -59,7 +66,12 @@ class KoopmanNet(nn.Module):
         #z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc_drift.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
 
         z_u = torch.cat([torch.transpose(torch.mul(torch.transpose(z,0,1), u), 0,1) for u in torch.transpose(u_vec,0,1)], 1)
-        z_prime_pred = z + self.koopman_fc_drift(z) + self.koopman_fc_act(z_u)
+
+        if self.net_params['override_kinematics']:
+            z_prime_pred = z[:, int(self.net_params['first_obs_const'])+int(n/2):] + self.koopman_fc_drift(z) + self.koopman_fc_act(z_u)
+            z_prime_pred = torch.cat((torch.ones((x_prime.shape[0], 1)), x[:, :int(n/2)] + x[:,int(n/2):]*self.net_params['dt'], z_prime_pred), 1)
+        else:
+            z_prime_pred = z + self.koopman_fc_drift(z) + self.koopman_fc_act(z_u)
 
         # TODO: Implement multi-step prediction
 

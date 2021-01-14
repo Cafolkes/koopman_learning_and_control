@@ -8,7 +8,7 @@ class KoopDnn():
     Base class for edmd-type methods. Implements baseline edmd with the possible addition of l1 and/or l2 regularization.
     Overload fit for more specific methods.
     '''
-    def __init__(self, n_traj, net_params, cv=None, standardizer=None, C=None, first_obs_const=True,
+    def __init__(self, n_traj, net_params, cv=None, standardizer=None, first_obs_const=True,
                  continuous_mdl=False, dt=None):
         self.n_traj = n_traj
         self.A = None
@@ -29,7 +29,6 @@ class KoopDnn():
         # TODO: Support overriding kinematics
 
     def fit(self, X, y, cv=False, override_kinematics=False):
-
         X_t = torch.from_numpy(X).float()
         y_t = torch.from_numpy(y).float()
         dataset = torch.utils.data.TensorDataset(X_t, y_t)
@@ -68,14 +67,28 @@ class KoopDnn():
         pass
 
     def construct_dyn_mat_discrete_(self):
-        self.A = self.koopman_net.koopman_fc_drift.weight.data.numpy()
-        self.A += np.eye(self.A.shape[0])
-
+        n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
-        n_tot = self.net_params['state_dim'] + self.net_params['encoder_output_dim'] + int(
-            self.net_params['first_obs_const'])
+        encoder_output_dim = self.net_params['encoder_output_dim']
+        first_obs_const = self.net_params['first_obs_const']
+        n_tot = n + encoder_output_dim + int(first_obs_const)
+        n_kinematics = int(first_obs_const) + int(n/2)
+        dt = self.net_params['dt']
+
+        self.A = self.koopman_net.koopman_fc_drift.weight.data.numpy()
         B_vec = self.koopman_net.koopman_fc_act.weight.data.numpy()
-        self.B = [B_vec[:, n_tot * ii:n_tot * (ii + 1)] for ii in range(m)]
+
+        if self.net_params['override_kinematics']:
+            self.A = np.concatenate((np.zeros((n_kinematics, n_tot)), self.A), axis=0)
+            self.A += np.eye(self.A.shape[0])
+            self.A[int(first_obs_const):n_kinematics, n_kinematics:n_kinematics+int(n/2)] += np.eye(int(n/2))*dt
+
+            self.B = [np.concatenate((np.zeros((n_kinematics, n_tot)), B_vec[:, n_tot*ii:n_tot*(ii+1)]), axis=0)
+                      for ii in range(m)]
+
+        else:
+            self.A += np.eye(self.A.shape[0])
+            self.B = [B_vec[:, n_tot * ii:n_tot * (ii + 1)] for ii in range(m)]
 
     def process(self, data_x, data_u, t, downsample_rate=1):
         n = self.net_params['state_dim']
