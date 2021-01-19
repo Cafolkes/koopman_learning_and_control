@@ -154,7 +154,7 @@ for best_trial in best_trial_lst:
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
-        checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
+    checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)
     test_loss.append(best_model.test_loss(xs_test, us_test, t_eval_test))
