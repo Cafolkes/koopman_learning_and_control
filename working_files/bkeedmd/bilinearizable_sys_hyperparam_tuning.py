@@ -64,8 +64,8 @@ dt = 1.0e-2                                                         # Time step 
 traj_length_dc = 2.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_train = 10                                                      # Number of trajectories to execute, data collection
-n_traj_test = 10                                                      # Number of trajectories to execute, data collection
+n_traj_train = 250                                                      # Number of trajectories to execute, data collection
+n_traj_test = 100                                                      # Number of trajectories to execute, data collection
 noise_var = 5.                                                      # Exploration noise to perturb controller, data collection
 x0_max = np.array([1., 1., 1., 1.])                                  # Initial value limits
 directory = os.path.abspath("working_files/bkeedmd/")                                                  # Path to save learned models
@@ -81,9 +81,9 @@ net_params['data_dir'] = directory + '/data'
 net_params['n_multistep'] = 1
 
 # DNN architecture parameters:
-net_params['encoder_hidden_dim'] = [20, 20]
+net_params['encoder_hidden_dim'] = [20, 20, 20]
 net_params['encoder_output_dim'] = 10
-net_params['epochs'] = 10
+net_params['epochs'] = 500
 net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
@@ -95,15 +95,14 @@ net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 30                                                      # Time budget for tuning process for each n_multistep value
-#n_multistep_lst = [1, 3, 5, 10, 30, 50]
-n_multistep_lst = [1, 3] # TODO: Reinsert full
-if torch.cuda.is_available():
-    resources_cpu = 12
-    resources_gpu = 1
-else:
-    resources_cpu = 8
-    resources_gpu = 0
+time_budget_s = 2*60*60                                                      # Time budget for tuning process for each n_multistep value
+n_multistep_lst = [1, 3, 5, 10, 30, 50]
+#if torch.cuda.is_available():
+#    resources_cpu = 12
+#    resources_gpu = 1
+#else:
+resources_cpu = 12
+resources_gpu = 0
 
 
 # Collect/load datasets:
