@@ -49,6 +49,11 @@ class KoopDnn():
         self.train_model(dataset_train, dataset_val)
 
     def train_model(self, dataset_train, dataset_val):
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda:0'
+        self.koopman_net.to(device)
+
         trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net_params['batch_size'], shuffle=True)
         valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net_params['batch_size'], shuffle=True)
 
@@ -57,6 +62,7 @@ class KoopDnn():
             epoch_steps = 0
             for i, data in enumerate(trainloader):
                 inputs, labels = data
+                inputs, labels = inputs.to(device), labels.to(device)
 
                 self.optimizer.zero_grad()
                 outputs = self.koopman_net(inputs)
@@ -77,6 +83,7 @@ class KoopDnn():
             for i, data in enumerate(valloader):
                 with torch.no_grad():
                     inputs, labels = data
+                    inputs, labels = inputs.to(device), labels.to(device)
 
                     outputs = self.koopman_net(inputs)
                     loss = self.koopman_net.loss(outputs, labels)
@@ -101,6 +108,7 @@ class KoopDnn():
         with torch.no_grad():
             for data in testloader:
                 inputs, labels = data
+                inputs, labels = inputs.to(device), labels.to(device)
 
                 outputs = self.koopman_net(inputs)
                 loss = self.koopman_net.loss(outputs, labels)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
-#import sys
-#sys.path.append('../../')
+import sys
+sys.path.append('../../')
 import os
 import numpy as np
 import torch
@@ -68,7 +68,7 @@ n_traj_train = 10                                                      # Number 
 n_traj_test = 10                                                      # Number of trajectories to execute, data collection
 noise_var = 5.                                                      # Exploration noise to perturb controller, data collection
 x0_max = np.array([1., 1., 1., 1.])                                  # Initial value limits
-directory = 'data/'                                                  # Path to save learned models
+directory = os.path.abspath("working_files/bkeedmd/")                                                  # Path to save learned models
 
 # Model configuration parameters:
 net_params = {}
@@ -77,13 +77,13 @@ net_params['ctrl_dim'] = m
 net_params['first_obs_const'] = True
 net_params['override_kinematics'] = True
 net_params['dt'] = dt
-net_params['data_dir'] = directory
+net_params['data_dir'] = directory + '/data'
 net_params['n_multistep'] = 1
 
 # DNN architecture parameters:
 net_params['encoder_hidden_dim'] = [20, 20]
 net_params['encoder_output_dim'] = 10
-net_params['epochs'] = 500
+net_params['epochs'] = 10
 net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
@@ -95,9 +95,15 @@ net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 10                                                      # Time budget for tuning process for each n_multistep value
-n_multistep_lst = [1, 3, 5, 10, 30, 50]
-
+time_budget_s = 30                                                      # Time budget for tuning process for each n_multistep value
+#n_multistep_lst = [1, 3, 5, 10, 30, 50]
+n_multistep_lst = [1, 3] # TODO: Reinsert full
+if torch.cuda.is_available():
+    resources_cpu = 12
+    resources_gpu = 1
+else:
+    resources_cpu = 8
+    resources_gpu = 0
 
 
 # Collect/load datasets:
@@ -108,11 +114,11 @@ if collect_data:
                                                       x0_max, noise_var)
 
     data_list = [xs_train, us_train, t_eval_train, n_traj_train, xs_test, us_test, t_eval_test, n_traj_test]
-    outfile = open(directory + sys_name + '_data.pickle', 'wb')
+    outfile = open(directory + '/data/' + sys_name + '_data.pickle', 'wb')
     dill.dump(data_list, outfile)
     outfile.close()
 else:
-    infile = open(directory + sys_name + '_data.pickle', 'rb')
+    infile = open(directory + '/data/' + sys_name + '_data.pickle', 'rb')
     xs_train, us_train, t_eval_train, n_traj_train, xs_test, us_test, t_eval_test, n_traj_test = dill.load(infile)
     infile.close()
 
@@ -141,7 +147,7 @@ for n_multistep in n_multistep_lst:
         num_samples=num_samples,
         time_budget_s=time_budget_s,
         scheduler=scheduler,
-        resources_per_trial={'gpu': 1}
+        resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu}
     )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
@@ -151,16 +157,22 @@ val_loss = []
 test_loss = []
 open_loop_mse = []
 open_loop_std = []
+
+device = 'cpu'
+if torch.cuda.is_available():
+    device = 'cuda:0'
+
 for best_trial in best_trial_lst:
     # Extract validation loss:
     val_loss.append(best_trial.last_result["loss"])
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
+    best_model.koopman_net.to(device)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)
-    test_loss.append(best_model.test_loss(xs_test, us_test, t_eval_test))
+    test_loss.append(best_model.test_loss(xs_test, us_test, t_eval_test, device=device))
 
     # Calculate open loop mse and std:
     n_tot = net_params['state_dim'] + net_params['encoder_output_dim'] + int(net_params['first_obs_const'])
@@ -180,9 +192,9 @@ plt.xlabel('# of multistep prediction steps')
 plt.ylabel('Loss')
 plt.title('Best tuned model performance VS multistep horizon')
 plt.legend()
-plt.savefig('figures/' + 'tuning_summary_' + sys_name + '.pdf')
+plt.savefig(directory + '/figures/' + 'tuning_summary_' + sys_name + '.pdf')
 
-outfile = open(directory + sys_name + '_best_params.pickle', 'wb')
+outfile = open(directory + '/data/' + sys_name + '_best_params.pickle', 'wb')
 data_list_tuning = [best_trial_lst, val_loss, test_loss, open_loop_mse, open_loop_std]
 dill.dump(data_list_tuning, outfile)
 outfile.close()
