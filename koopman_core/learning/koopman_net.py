@@ -32,7 +32,7 @@ class KoopmanNet(nn.Module):
             self.koopman_fc_act = nn.Linear(m * n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
-            self.koopman_fc_act = nn.Linear(m * n_tot, n_tot, bias=False)
+            self.koopman_fc_act = nn.Linear(m*n_tot, n_tot, bias=False)
 
     def forward(self, data):
         # data = [x, u, x_prime]
