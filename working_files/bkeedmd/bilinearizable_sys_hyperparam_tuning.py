@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
-import sys
-sys.path.append('../../')
+#import sys
+#sys.path.append('../../')
 import os
 import numpy as np
 import torch
@@ -140,7 +140,8 @@ for n_multistep in n_multistep_lst:
         checkpoint_at_end=True,
         num_samples=num_samples,
         time_budget_s=time_budget_s,
-        scheduler=scheduler
+        scheduler=scheduler,
+        resources_per_trial={'gpu': 1}
     )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
