@@ -97,12 +97,12 @@ net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
 num_samples = -1
 time_budget_s = 2*60*60                                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 3, 5, 10, 30, 50]
-#if torch.cuda.is_available():
-#    resources_cpu = 12
-#    resources_gpu = 1
-#else:
-resources_cpu = 12
-resources_gpu = 0
+if torch.cuda.is_available():
+    resources_cpu = 12
+    resources_gpu = 1
+else:
+    resources_cpu = 8
+    resources_gpu = 0
 
 
 # Collect/load datasets:
