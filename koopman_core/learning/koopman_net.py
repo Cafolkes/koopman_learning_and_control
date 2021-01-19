@@ -43,6 +43,10 @@ class KoopmanNet(nn.Module):
         first_obs_const = self.net_params['first_obs_const']
         dt = self.net_params['dt']
 
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda:0'
+
         x_vec = data[:, :n*n_multistep]
         u_vec = data[:, n*n_multistep:n*n_multistep+m*n_multistep]
         x_prime_vec = data[:, n*n_multistep+m*n_multistep:]
@@ -53,6 +57,7 @@ class KoopmanNet(nn.Module):
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
             z = torch.cat((torch.ones((x.shape[0], 1)), x, self.encode_forward_(x)), 1)
+            z = z.to(device)
             #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (torch.ones((x_prime_vec.shape[0],1)),
@@ -60,6 +65,7 @@ class KoopmanNet(nn.Module):
                 ii in range(n_multistep)], 1)
         else:
             z = torch.cat((x, self.encode_forward_(x)), 1)
+            z = z.to(device)
             #z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for
