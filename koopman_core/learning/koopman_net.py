@@ -53,19 +53,19 @@ class KoopmanNet(nn.Module):
 
         # Define linearity networks:
         x = x_vec[:, :n]
+        x.to(device)
         x_prime = x_prime_vec[:, :n]
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
             z = torch.cat((torch.ones((x.shape[0], 1)), x, self.encode_forward_(x)), 1)
-            z = z.to(device)
             #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (torch.ones((x_prime_vec.shape[0],1)),
                  x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
                 ii in range(n_multistep)], 1)
         else:
+            x.to(device)
             z = torch.cat((x, self.encode_forward_(x)), 1)
-            z = z.to(device)
             #z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for
