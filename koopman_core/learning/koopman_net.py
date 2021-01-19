@@ -129,7 +129,8 @@ class KoopmanNet(nn.Module):
         total_loss = pred_loss + alpha * lin_loss
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
             l1_reg = self.net_params['l1_reg']
-            total_loss += l1_reg * torch.norm(self.koopman_fc_drift.weight.flatten(), p=1)
+            total_loss += l1_reg * (torch.norm(self.koopman_fc_drift.weight.flatten(), p=1)
+                                    + torch.norm(self.koopman_fc_act.weight.flatten(), p=1))
 
         return total_loss
 
