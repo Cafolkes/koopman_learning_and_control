@@ -59,7 +59,7 @@ class KoopmanNet(nn.Module):
             z = torch.cat((torch.ones((x.shape[0], 1)).to(device), x, self.encode_forward_(x)), 1)
             #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
-                (torch.ones((x_prime_vec.shape[0],1)),
+                (torch.ones((x_prime_vec.shape[0],1)).to(device),
                  x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
                 ii in range(n_multistep)], 1)
         else:
@@ -84,7 +84,7 @@ class KoopmanNet(nn.Module):
                                    + self.koopman_fc_drift(z_pred[:, n_tot * kk:n_tot * (kk + 1)]) \
                                    + self.koopman_fc_act(z_u_pred[:, m * n_tot * kk:m * n_tot * (kk + 1)])
 
-                z_prime_pred = torch.cat((z_prime_pred, torch.cat((torch.ones((x_prime.shape[0], 1)),
+                z_prime_pred = torch.cat((z_prime_pred, torch.cat((torch.ones((x_prime.shape[0], 1)).to(device),
                                                                    z_pred[:, n_tot*kk:n_tot*kk+int(n/2)] + z_pred[:, n_tot*kk+int(n/2):n_tot*kk+n]*dt,
                                                                    z_prime_pred_tmp), 1)), 1)
 
