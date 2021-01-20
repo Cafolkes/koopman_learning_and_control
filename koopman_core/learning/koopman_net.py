@@ -74,7 +74,7 @@ class KoopmanNet(nn.Module):
 
         #z_pred = torch.zeros((z.shape[0], n_tot*(n_multistep+1)))
         z_pred = z
-        z_prime_pred = torch.empty((z.shape[0],0))
+        z_prime_pred = torch.empty((z.shape[0],0)).to(device)
         #z_u_pred = torch.zeros((z_prime_pred.shape[0], m*n_tot*n_multistep))
         z_u_pred = torch.cat(
             [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u), 0, 1) for u in torch.transpose(u_vec, 0, 1)], 1)
