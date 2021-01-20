@@ -158,8 +158,8 @@ open_loop_mse = []
 open_loop_std = []
 
 device = 'cpu'
-#if torch.cuda.is_available():
-#    device = 'cuda:0'
+if torch.cuda.is_available():
+    device = 'cuda:0'
 
 for best_trial in best_trial_lst:
     # Extract validation loss:
@@ -167,7 +167,7 @@ for best_trial in best_trial_lst:
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
-    best_model.koopman_net.to(device)
+    best_model.to(device)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)

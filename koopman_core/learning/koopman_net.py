@@ -53,7 +53,6 @@ class KoopmanNet(nn.Module):
 
         # Define linearity networks:
         x = x_vec[:, :n]
-        x.to(device)
         x_prime = x_prime_vec[:, :n]
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
@@ -64,7 +63,6 @@ class KoopmanNet(nn.Module):
                  x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
                 ii in range(n_multistep)], 1)
         else:
-            x.to(device)
             z = torch.cat((x, self.encode_forward_(x)), 1)
             #z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
@@ -174,3 +172,17 @@ class KoopmanNet(nn.Module):
             z = np.concatenate((x, self.encode_forward_(x_t).detach().numpy()), axis=1)
 
         return z
+
+    def send_to_(self, device):
+        hidden_dim = self.net_params['encoder_hidden_dim']
+
+        if len(hidden_dim) > 0:
+            self.encoder_fc_in.to(device)
+            for ii in range(1, len(hidden_dim)):
+                self.encoder_fc_hid[ii].to(device)
+            self.encoder_fc_out.to(device)
+        else:
+            self.encoder_fc_out.to(device)
+
+        self.koopman_fc_drift.to(device)
+        self.koopman_fc_act.to(device)

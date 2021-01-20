@@ -52,7 +52,7 @@ class KoopDnn():
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
-        self.koopman_net.to(device)
+        self.koopman_net.send_to_(device)
 
         trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net_params['batch_size'], shuffle=True)
         valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net_params['batch_size'], shuffle=True)
