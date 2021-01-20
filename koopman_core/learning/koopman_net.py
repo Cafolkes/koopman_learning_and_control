@@ -56,7 +56,7 @@ class KoopmanNet(nn.Module):
         x_prime = x_prime_vec[:, :n]
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
-            z = torch.cat((torch.ones((x.shape[0], 1)), x, self.encode_forward_(x)), 1)
+            z = torch.cat((torch.ones((x.shape[0], 1)).to(device), x, self.encode_forward_(x)), 1)
             #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (torch.ones((x_prime_vec.shape[0],1)),
