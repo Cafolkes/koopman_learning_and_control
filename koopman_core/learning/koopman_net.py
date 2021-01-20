@@ -178,7 +178,7 @@ class KoopmanNet(nn.Module):
 
         if len(hidden_dim) > 0:
             self.encoder_fc_in.to(device)
-            for ii in range(1, len(hidden_dim)):
+            for ii in range(len(hidden_dim)-1):
                 self.encoder_fc_hid[ii].to(device)
             self.encoder_fc_out.to(device)
         else:
