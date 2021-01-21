@@ -128,6 +128,7 @@ class KoopDnn():
         self.construct_basis_()
 
     def construct_dyn_mat_(self):
+        self.koopman_net.send_to('cpu')
         if self.continuous_mdl:
             self.construct_dyn_mat_continuous_()
         else:
