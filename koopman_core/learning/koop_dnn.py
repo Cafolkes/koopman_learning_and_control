@@ -35,7 +35,7 @@ class KoopDnn():
         self.u_trainval = u_trainval
         self.t_eval = t_eval
 
-    def model_pipeline(self, net_params, val_frac=0.2):
+    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True):
         self.net_params = net_params
         self.set_optimizer_()
         self.koopman_net.net_params = net_params
@@ -46,13 +46,13 @@ class KoopDnn():
 
         val_abs = int(len(dataset_trainval) * val_frac)
         dataset_train, dataset_val = random_split(dataset_trainval, [len(dataset_trainval) - val_abs, val_abs])
-        self.train_model(dataset_train, dataset_val)
+        self.train_model(dataset_train, dataset_val, print_epoch=print_epoch)
 
-    def train_model(self, dataset_train, dataset_val):
+    def train_model(self, dataset_train, dataset_val, print_epoch=True):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
-        self.koopman_net.send_to_(device)
+        self.koopman_net.send_to(device)
 
         trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net_params['batch_size'], shuffle=True)
         valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net_params['batch_size'], shuffle=True)
@@ -72,10 +72,10 @@ class KoopDnn():
 
                 running_loss += loss.item()
                 epoch_steps += 1
-                if i % 100 == 99:  # print every 100 mini-batches
+                if i % 100 == 99 and print_epoch:  # print every 100 mini-batches
                     print('[%d, %5d] loss: %.8f' %
                           (epoch + 1, i + 1, running_loss / 100))
-                    running_loss = 0.0  #TODO: Evaluate if epoch_steps should be zeroed.
+                    running_loss = 0.0
 
             # Validation loss:
             val_loss = 0.0

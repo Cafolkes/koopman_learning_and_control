@@ -173,7 +173,7 @@ class KoopmanNet(nn.Module):
 
         return z
 
-    def send_to_(self, device):
+    def send_to(self, device):
         hidden_dim = self.net_params['encoder_hidden_dim']
 
         if len(hidden_dim) > 0:

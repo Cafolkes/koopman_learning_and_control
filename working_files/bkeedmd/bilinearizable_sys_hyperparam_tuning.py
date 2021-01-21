@@ -12,7 +12,8 @@ from koopman_core.util import run_experiment, evaluate_ol_pred
 from koopman_core.dynamics import BilinearLiftedDynamics
 from koopman_core.learning import KoopDnn
 from ray import tune
-from ray.tune.schedulers import ASHAScheduler
+from ray.tune.suggest.bohb import TuneBOHB
+from ray.tune.schedulers import HyperBandForBOHB
 import matplotlib.pyplot as plt
 
 class FiniteDimKoopSys(RoboticDynamics):
@@ -87,21 +88,21 @@ net_params['epochs'] = 500
 net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
-net_params['lr'] = tune.loguniform(1e-5, 1e-1)
-net_params['l2_reg'] = tune.uniform(1e-6, 1e0)
-net_params['l1_reg'] = tune.uniform(1e-6, 1e0)
+net_params['lr'] = tune.loguniform(1e-5, 1e-2)
+net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
 net_params['batch_size'] = tune.choice([8, 16, 32])
 net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
 time_budget_s = 2*60*60                                                      # Time budget for tuning process for each n_multistep value
-n_multistep_lst = [1, 3, 5, 10, 30, 50]
+n_multistep_lst = [1, 5, 10, 30]
 if torch.cuda.is_available():
-    resources_cpu = 12
-    resources_gpu = 1
+    resources_cpu = 2
+    resources_gpu = 0.2
 else:
-    resources_cpu = 8
+    resources_cpu = 1
     resources_gpu = 0
 
 
@@ -126,27 +127,33 @@ model_kdnn = KoopDnn(net_params)
 model_kdnn.set_datasets(xs_train, us_train, t_eval_train)
 
 # Set up hyperparameter tuning:
-trainable = lambda config: model_kdnn.model_pipeline(config)
+trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False)
 tune.register_trainable('trainable_pipeline', trainable)
 
 best_trial_lst = []
 for n_multistep in n_multistep_lst:
-    scheduler = ASHAScheduler(
-        max_t=net_params['epochs'],
-        grace_period=1,
-        reduction_factor=2)
+    #scheduler = ASHAScheduler(
+    #    max_t=net_params['epochs'],
+    #    grace_period=1,
+    #    reduction_factor=2)
+    algo = TuneBOHB(metric='loss', mode='min')
+    bohb = HyperBandForBOHB(
+        metric='loss',
+        mode='min',
+        max_t=net_params['epochs']
+    )
 
     net_params['n_multistep'] = n_multistep
     result = tune.run(
         'trainable_pipeline',
         config=net_params,
-        metric='loss',
-        mode='min',
         checkpoint_at_end=True,
         num_samples=num_samples,
         time_budget_s=time_budget_s,
-        scheduler=scheduler,
-        resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu}
+        scheduler=bohb,
+        search_alg=algo,
+        resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
+        verbose=1
     )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
@@ -167,7 +174,7 @@ for best_trial in best_trial_lst:
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
-    best_model.to(device)
+    best_model.koopman_net.send_to(device)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)
@@ -185,8 +192,8 @@ for best_trial in best_trial_lst:
 plt.figure()
 plt.plot(n_multistep_lst, val_loss, label='validation loss')
 plt.plot(n_multistep_lst, test_loss, label='test loss')
-plt.plot(n_multistep_lst, val_loss, label='open loop mse')
-plt.plot(n_multistep_lst, val_loss, label='open loop std')
+plt.plot(n_multistep_lst, open_loop_mse, label='open loop mse')
+plt.plot(n_multistep_lst, open_loop_std, label='open loop std')
 plt.xlabel('# of multistep prediction steps')
 plt.ylabel('Loss')
 plt.title('Best tuned model performance VS multistep horizon')
