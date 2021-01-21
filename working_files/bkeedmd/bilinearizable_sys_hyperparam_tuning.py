@@ -96,7 +96,7 @@ net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 2*60*60                                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 120  # TODO: Increase                                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 5, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -164,17 +164,13 @@ test_loss = []
 open_loop_mse = []
 open_loop_std = []
 
-device = 'cpu'
-if torch.cuda.is_available():
-    device = 'cuda:0'
-
 for best_trial in best_trial_lst:
     # Extract validation loss:
     val_loss.append(best_trial.last_result["loss"])
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
-    best_model.koopman_net.send_to(device)
+    #best_model.koopman_net.send_to(device)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)

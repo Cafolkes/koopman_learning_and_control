@@ -97,7 +97,12 @@ class KoopDnn():
             tune.report(loss=(val_loss / val_steps))
         print("Finished Training")
 
-    def test_loss(self, x_test, u_test, t_eval_test, device="cpu"):
+    def test_loss(self, x_test, u_test, t_eval_test):
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda:0'
+        self.koopman_net.send_to(device)
+
         X_kdnn, y_kdnn = self.process(x_test, u_test, np.tile(t_eval_test, (x_test.shape[0], 1)))
         X_t, y_t = torch.from_numpy(X_kdnn).float(), torch.from_numpy(y_kdnn).float()
         dataset_test = torch.utils.data.TensorDataset(X_t, y_t)
