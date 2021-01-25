@@ -91,16 +91,17 @@ net_params['optimizer'] = 'adam'
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
 net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
 net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
-net_params['batch_size'] = tune.choice([8, 16, 32])
-net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
+net_params['batch_size'] = tune.choice([16, 32, 64, 128])
+net_params['lin_loss_penalty'] = tune.loguniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 120  # TODO: Increase                                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 3*60*60
 n_multistep_lst = [1, 5, 10, 30]
 if torch.cuda.is_available():
-    resources_cpu = 2
-    resources_gpu = 0.2
+    n_jobs = 5
+    resources_cpu = 12/5
+    resources_gpu = 1/5
 else:
     resources_cpu = 1
     resources_gpu = 0
