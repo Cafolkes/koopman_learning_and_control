@@ -35,7 +35,7 @@ class KoopDnn():
         self.u_trainval = u_trainval
         self.t_eval = t_eval
 
-    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True):
+    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True, tune_run=False):
         self.net_params = net_params
         self.set_optimizer_()
         self.koopman_net.net_params = net_params
@@ -46,9 +46,9 @@ class KoopDnn():
 
         val_abs = int(len(dataset_trainval) * val_frac)
         dataset_train, dataset_val = random_split(dataset_trainval, [len(dataset_trainval) - val_abs, val_abs])
-        self.train_model(dataset_train, dataset_val, print_epoch=print_epoch)
+        self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run)
 
-    def train_model(self, dataset_train, dataset_val, print_epoch=True):
+    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
@@ -91,10 +91,11 @@ class KoopDnn():
                     val_steps += 1
 
             # Save Ray Tune checkpoint:
-            with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
-                path = os.path.join(checkpoint_dir, "checkpoint")
-                torch.save((self.koopman_net.state_dict(), self.optimizer.state_dict()), path)
-            tune.report(loss=(val_loss / val_steps))
+            if tune_run:
+                with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
+                    path = os.path.join(checkpoint_dir, "checkpoint")
+                    torch.save((self.koopman_net.state_dict(), self.optimizer.state_dict()), path)
+                tune.report(loss=(val_loss / val_steps))
         print("Finished Training")
 
     def test_loss(self, x_test, u_test, t_eval_test):

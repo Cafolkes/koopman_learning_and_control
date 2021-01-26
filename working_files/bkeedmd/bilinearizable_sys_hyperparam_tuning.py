@@ -84,7 +84,7 @@ net_params['n_multistep'] = 1
 # DNN architecture parameters:
 net_params['encoder_hidden_dim'] = [20, 20, 20]
 net_params['encoder_output_dim'] = 10
-net_params['epochs'] = 500
+net_params['epochs'] = 200
 net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
@@ -97,7 +97,7 @@ net_params['lin_loss_penalty'] = tune.loguniform(1e-6, 1e0)
 # Hyperparameter tuning parameters:
 num_samples = -1
 time_budget_s = 3*60*60                                                      # Time budget for tuning process for each n_multistep value
-n_multistep_lst = [1, 5, 10, 30]
+n_multistep_lst = [1, 5, 10]
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
@@ -127,10 +127,10 @@ model_kdnn = KoopDnn(net_params)
 model_kdnn.set_datasets(xs_train, us_train, t_eval_train)
 
 # Set up hyperparameter tuning:
-trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False)
+trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
 tune.register_trainable('trainable_pipeline', trainable)
 
-best_trial_lst = []
+best_trial_lst, best_config_lst = [], []
 for n_multistep in n_multistep_lst:
     #scheduler = ASHAScheduler(
     #    max_t=net_params['epochs'],
@@ -157,6 +157,8 @@ for n_multistep in n_multistep_lst:
     )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
+    best_config_lst.append(result.get_best_config("loss", "min"))
+    print(result.get_best_trial("loss", "min", "last"))
 
 # Analyze the results:
 val_loss = []
@@ -166,11 +168,12 @@ open_loop_std = []
 
 for best_trial in best_trial_lst:
     # Extract validation loss:
+    print(best_trial)
+    print(best_trial.last_result["loss"])
     val_loss.append(best_trial.last_result["loss"])
 
     # Calculate test loss:
     best_model = KoopDnn(best_trial.config)
-    #best_model.koopman_net.send_to(device)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.koopman_net.load_state_dict(model_state)
@@ -197,6 +200,6 @@ plt.legend()
 plt.savefig(directory + '/figures/' + 'tuning_summary_' + sys_name + '.pdf')
 
 outfile = open(directory + '/data/' + sys_name + '_best_params.pickle', 'wb')
-data_list_tuning = [best_trial_lst, val_loss, test_loss, open_loop_mse, open_loop_std]
+data_list_tuning = [best_config_lst, val_loss, test_loss, open_loop_mse, open_loop_std]
 dill.dump(data_list_tuning, outfile)
 outfile.close()
