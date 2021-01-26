@@ -126,7 +126,7 @@ model_kdnn = KoopDnn(net_params)
 model_kdnn.set_datasets(xs_train, us_train, t_eval_train)
 
 # Set up hyperparameter tuning:
-trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=True, tune_run=False)  #TODO: Set printing false
+trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
 tune.register_trainable('trainable_pipeline', trainable)
 
 best_trial_lst, best_config_lst = [], []
@@ -134,6 +134,7 @@ for n_multistep in n_multistep_lst:
     net_params['n_multistep'] = n_multistep
 
     scheduler = ASHAScheduler(
+        time_attr='training_iteration',
         metric='loss',
         mode='min',
         max_t=net_params['epochs'],
@@ -171,7 +172,6 @@ for n_multistep in n_multistep_lst:
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
     best_config_lst.append(result.get_best_config("loss", "min"))
-    print(result.get_best_trial("loss", "min", "last"))
 
 # Analyze the results:
 val_loss = []
@@ -181,8 +181,6 @@ open_loop_std = []
 
 for best_trial in best_trial_lst:
     # Extract validation loss:
-    print(best_trial)
-    print(best_trial.last_result["loss"])
     val_loss.append(best_trial.last_result["loss"])
 
     # Calculate test loss:
