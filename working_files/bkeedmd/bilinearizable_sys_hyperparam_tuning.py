@@ -13,7 +13,7 @@ from koopman_core.dynamics import BilinearLiftedDynamics
 from koopman_core.learning import KoopDnn
 from ray import tune
 from ray.tune.suggest.bohb import TuneBOHB
-from ray.tune.schedulers import HyperBandForBOHB
+from ray.tune.schedulers import HyperBandForBOHB, ASHAScheduler
 import matplotlib.pyplot as plt
 
 class FiniteDimKoopSys(RoboticDynamics):
@@ -89,22 +89,21 @@ net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
-net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
-net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['l2_reg'] = tune.loguniform(1e-6, 1e-1)
+net_params['l1_reg'] = tune.loguniform(1e-6, 1e-1)
 net_params['batch_size'] = tune.choice([16, 32, 64, 128])
-net_params['lin_loss_penalty'] = tune.loguniform(1e-6, 1e0)
+net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                                      # Time budget for tuning process for each n_multistep value
-n_multistep_lst = [1, 5, 10]
+time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
+n_multistep_lst = [1, 5, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
 else:
     resources_cpu = 1
     resources_gpu = 0
-
 
 # Collect/load datasets:
 if collect_data:
@@ -127,34 +126,48 @@ model_kdnn = KoopDnn(net_params)
 model_kdnn.set_datasets(xs_train, us_train, t_eval_train)
 
 # Set up hyperparameter tuning:
-trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
+trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=True, tune_run=False)  #TODO: Set printing false
 tune.register_trainable('trainable_pipeline', trainable)
 
 best_trial_lst, best_config_lst = [], []
 for n_multistep in n_multistep_lst:
-    #scheduler = ASHAScheduler(
-    #    max_t=net_params['epochs'],
-    #    grace_period=1,
-    #    reduction_factor=2)
-    algo = TuneBOHB(metric='loss', mode='min')
-    bohb = HyperBandForBOHB(
+    net_params['n_multistep'] = n_multistep
+
+    scheduler = ASHAScheduler(
         metric='loss',
         mode='min',
-        max_t=net_params['epochs']
+        max_t=net_params['epochs'],
+        grace_period=3,
     )
-
-    net_params['n_multistep'] = n_multistep
     result = tune.run(
         'trainable_pipeline',
         config=net_params,
         checkpoint_at_end=True,
         num_samples=num_samples,
         time_budget_s=time_budget_s,
-        scheduler=bohb,
-        search_alg=algo,
+        scheduler=scheduler,
+        #search_alg=algo,
         resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
         verbose=1
     )
+    # algo = TuneBOHB(metric='loss', mode='min')
+    # bohb = HyperBandForBOHB(
+    #    metric='loss',
+    #    mode='min',
+    #    max_t=net_params['epochs'],
+    #    time_attr='training_iteration'
+    # )
+    # result = tune.run(
+    #    'trainable_pipeline',
+    #    config=net_params,
+    #    checkpoint_at_end=True,
+    #    num_samples=num_samples,
+    #    time_budget_s=time_budget_s,
+    #    scheduler=bohb,
+    #    search_alg=algo,
+    #    resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
+    #    verbose=3
+    # )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
     best_config_lst.append(result.get_best_config("loss", "min"))

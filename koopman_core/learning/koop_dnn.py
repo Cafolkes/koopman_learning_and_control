@@ -72,10 +72,10 @@ class KoopDnn():
 
                 running_loss += loss.item()
                 epoch_steps += 1
-                if i % 100 == 99 and print_epoch:  # print every 100 mini-batches
-                    print('[%d, %5d] loss: %.8f' %
-                          (epoch + 1, i + 1, running_loss / 100))
-                    running_loss = 0.0
+                #if i % 100 == 99 and print_epoch:  # print every 100 mini-batches
+                #    print('[%d, %5d] loss: %.8f' %
+                #          (epoch + 1, i + 1, running_loss / 100))
+                #    running_loss = 0.0
 
             # Validation loss:
             val_loss = 0.0
@@ -90,12 +90,16 @@ class KoopDnn():
                     val_loss += loss.cpu().numpy()
                     val_steps += 1
 
+            # Print epoch loss:
+            if print_epoch:
+                print('Epoch %3d: train loss: %.8f, validation loss: %.8f' %(epoch + 1, running_loss/epoch_steps, val_loss/val_steps))
+
             # Save Ray Tune checkpoint:
             if tune_run:
                 with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
                     path = os.path.join(checkpoint_dir, "checkpoint")
                     torch.save((self.koopman_net.state_dict(), self.optimizer.state_dict()), path)
-                tune.report(loss=(val_loss / val_steps))
+                tune.report(loss=(val_loss/val_steps))
         print("Finished Training")
 
     def test_loss(self, x_test, u_test, t_eval_test):
