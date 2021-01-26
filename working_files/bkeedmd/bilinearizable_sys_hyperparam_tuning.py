@@ -91,8 +91,8 @@ net_params['optimizer'] = 'adam'
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
 net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
 net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
-net_params['batch_size'] = tune.choice([8, 16, 32])
-net_params['lin_loss_penalty'] = tune.uniform(1e-6, 1e0)
+net_params['batch_size'] = tune.choice([16, 32, 64, 128])
+net_params['lin_loss_penalty'] = tune.loguniform(1e-6, 1e0)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
