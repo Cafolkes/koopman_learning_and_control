@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random as rand
 from core.dynamics import ConfigurationDynamics
-from core.controllers import PDController
+from core.controllers import ConstantController, PDController
 from koopman_core.controllers import PerturbedController, OpenLoopController
 
 class KoopPdOutput(ConfigurationDynamics):
@@ -25,19 +25,24 @@ class KoopPdOutput(ConfigurationDynamics):
         return q_dot - q_dot_d
 
 
-def run_experiment(system, n, m, K_p, K_d, n_traj, n_pred, t_eval, x0_max, noise_var, plot_experiment_data=False, n_cols_plot=10):
+def run_experiment(system, n, n_traj, n_pred, t_eval, x0_max, plot_experiment_data=False, n_cols_plot=10, m=None, K_p=None, K_d=None, noise_var=None):
     xs = np.empty((n_traj, n_pred + 1, n))
-    us = np.empty((n_traj, n_pred, m))
+    if m is not None:
+        us = np.empty((n_traj, n_pred, m))
 
     plt.figure(figsize=(12, 12 * n_traj / (n_cols_plot ** 2)))
     for ii in range(n_traj):
         x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
         set_pt_dc = np.zeros(n)
 
-        output = KoopPdOutput(system, set_pt_dc, n, m)
-        pd_controller = PDController(output, K_p, K_d)
-        perturbed_pd_controller = PerturbedController(system, pd_controller, noise_var)
-        xs[ii, :, :], us[ii, :, :] = system.simulate(x0, perturbed_pd_controller, t_eval)
+        if m is None and K_p is None and K_d is None:
+            ctrl = ConstantController(system, 0.)
+            xs[ii, :, :], _ = system.simulate(x0, ctrl, t_eval)
+        else:
+            output = KoopPdOutput(system, set_pt_dc, n, m)
+            pd_controller = PDController(output, K_p, K_d)
+            ctrl = PerturbedController(system, pd_controller, noise_var)
+            xs[ii, :, :], us[ii, :, :] = system.simulate(x0, ctrl, t_eval)
 
         if plot_experiment_data:
             plt.subplot(int(np.ceil(n_traj / n_cols_plot)), n_cols_plot, ii + 1)
@@ -52,19 +57,25 @@ def run_experiment(system, n, m, K_p, K_d, n_traj, n_pred, t_eval, x0_max, noise
             y=0.94)
         plt.show()
 
-    return xs, us, t_eval
+    if m is None and K_p is None and K_d is None:
+        return xs, t_eval
+    else:
+        return xs, us, t_eval
 
-def evaluate_ol_pred(sys, xs, us, t_eval):
+def evaluate_ol_pred(sys, xs, t_eval, us=None):
     n_traj = xs.shape[0]
     n = xs.shape[2]
 
     xs_pred = np.empty((n_traj, t_eval.shape[0]-1, n))
     for ii in range(n_traj):
-        ol_controller_nom = OpenLoopController(sys, us[ii, :, :], t_eval[:-1])
+        if us is None:
+            ctrl = ConstantController(sys, 0.)
+        else:
+            ctrl = OpenLoopController(sys, us[ii, :, :], t_eval[:-1])
 
         x0 = xs[ii,0,:]
         z0 = sys.basis(np.atleast_2d(x0)).squeeze()
-        zs_tmp, _ = sys.simulate(z0, ol_controller_nom, t_eval[:-1])
+        zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[:-1])
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T
 
     error = xs[:, :-1, :] - xs_pred

@@ -179,3 +179,66 @@ class KoopmanNet(nn.Module):
         self.koopman_fc_drift.to(device)
         self.koopman_fc_act.to(device)
         self.C = self.C.to(device)
+
+    def construct_dyn_mat_discrete(self):
+        n = self.net_params['state_dim']
+        m = self.net_params['ctrl_dim']
+        encoder_output_dim = self.net_params['encoder_output_dim']
+        first_obs_const = self.net_params['first_obs_const']
+        n_tot = n + encoder_output_dim + int(first_obs_const)
+        n_kinematics = int(first_obs_const) + int(n/2)
+        dt = self.net_params['dt']
+
+        self.A = self.koopman_fc_drift.weight.data.numpy()
+        B_vec = self.koopman_fc_act.weight.data.numpy()
+
+        if self.net_params['override_kinematics']:
+            self.A = np.concatenate((np.zeros((n_kinematics, n_tot)), self.A), axis=0)
+            self.A += np.eye(self.A.shape[0])
+            self.A[int(first_obs_const):n_kinematics, n_kinematics:n_kinematics+int(n/2)] += np.eye(int(n/2))*dt
+
+            self.B = [np.concatenate((np.zeros((n_kinematics, n_tot)), B_vec[:, n_tot*ii:n_tot*(ii+1)]), axis=0)
+                      for ii in range(m)]
+
+        else:
+            self.A += np.eye(self.A.shape[0])
+            self.B = [B_vec[:, n_tot * ii:n_tot * (ii + 1)] for ii in range(m)]
+
+    def construct_dyn_mat_continuous(self):
+        pass
+
+    def process(self, data_x, data_u, t, downsample_rate=1):
+        n = self.net_params['state_dim']
+        m = self.net_params['ctrl_dim']
+        n_traj = data_x.shape[0]
+        traj_length = data_x.shape[1]
+        n_multistep = self.net_params['n_multistep']
+
+        x = np.zeros((n_traj, traj_length-n_multistep, n*n_multistep))
+        u = np.zeros((n_traj, traj_length-n_multistep, m*n_multistep))
+        x_prime = np.zeros((n_traj, traj_length - n_multistep, n * n_multistep))
+        for ii in range(n_multistep):
+            x[:, :, n*ii:n*(ii+1)] = data_x[:, ii:-(n_multistep-ii), :]
+            if ii + 1 < n_multistep:
+                u[:, :, m*ii:m*(ii+1)] = data_u[:, ii:-(n_multistep-ii-1), :]
+                x_prime[:, :, n*ii:n*(ii+1)] = data_x[:, ii+1:-(n_multistep - ii - 1), :]
+            else:
+                u[:, :, m * ii:m * (ii + 1)] = data_u[:, ii:, :]
+                x_prime[:, :, n*ii:n*(ii+1)] = data_x[:, ii+1:, :]
+
+        order = 'F'
+        n_data_pts = n_traj * (t[0,:].shape[0] - n_multistep)
+        x_flat = x.T.reshape((n*n_multistep, n_data_pts), order=order)
+        u_flat = u.T.reshape((m*n_multistep, n_data_pts), order=order)
+        x_prime_flat = x_prime.T.reshape((n*n_multistep, n_data_pts), order=order)
+
+        #if self.standardizer is None:
+        x_flat, u_flat, x_prime_flat = x_flat.T, u_flat.T, x_prime_flat.T
+        #else:
+        #    pass
+            #self.standardizer.fit(x_flat.T)
+            #x_flat, x_prime_flat = self.standardizer.transform(x_flat.T), x_prime_flat.T
+
+        X = np.concatenate((x_flat, u_flat, x_prime_flat), axis=1)
+
+        return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]

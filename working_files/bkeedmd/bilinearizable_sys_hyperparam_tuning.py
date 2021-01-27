@@ -107,10 +107,10 @@ else:
 
 # Collect/load datasets:
 if collect_data:
-    xs_train, us_train, t_eval_train = run_experiment(system, n, m, K_dc_p, K_dc_d, n_traj_train, n_pred_dc, t_eval,
-                                                      x0_max, noise_var)
-    xs_test, us_test, t_eval_test = run_experiment(system, n, m, K_dc_p, K_dc_d, n_traj_test, n_pred_dc, t_eval,
-                                                      x0_max, noise_var)
+    xs_train, us_train, t_eval_train = run_experiment(system, n, n_traj_train, n_pred_dc, t_eval,
+                                                      x0_max, m=m, K_p=K_dc_p, K_d=K_dc_d, noise_var=noise_var)
+    xs_test, us_test, t_eval_test = run_experiment(system, n, n_traj_test, n_pred_dc, t_eval,
+                                                      x0_max, m=m, K_p=K_dc_p, K_d=K_dc_d, noise_var=noise_var)
 
     data_list = [xs_train, us_train, t_eval_train, n_traj_train, xs_test, us_test, t_eval_test, n_traj_test]
     outfile = open(directory + '/data/' + sys_name + '_data.pickle', 'wb')
