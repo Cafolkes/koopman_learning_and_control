@@ -5,24 +5,34 @@ sys.path.append('../../')
 import os
 import numpy as np
 import torch
-import scipy as sc
 import dill
-from core.dynamics import RoboticDynamics
+from core.dynamics import SystemDynamics
 from koopman_core.util import run_experiment, evaluate_ol_pred
 from koopman_core.dynamics import LinearLiftedDynamics
-from koopman_core.systems import AutKoopSys
 from koopman_core.learning import KoopDnn, KoopmanNetAut
 from ray import tune
 from ray.tune.suggest.bohb import TuneBOHB
 from ray.tune.schedulers import HyperBandForBOHB, ASHAScheduler
 import matplotlib.pyplot as plt
 
+class FiniteKoopSys(SystemDynamics):
+    def __init__(self, mu, lambd):
+        SystemDynamics.__init__(self, 4, 0)
+        self.params = mu, lambd
+
+    def drift(self, x, t):
+        mu, lambd = self.params
+
+        return np.array([x[2], x[3], mu * x[2], -lambd * x[2] ** 2 + lambd * x[3]])
+
+    def eval_dot(self, x, u, t):
+        return self.drift(x, t)
 
 # Define system and system linearization:
 sys_name = 'analytic_koop_sys'
-n, m = 2, 0
+n, m = 4, 0
 mu, lambd = -0.3, -0.6
-system = AutKoopSys(mu, lambd)
+system = FiniteKoopSys(mu, lambd)
 
 # Data collection parameters:
 collect_data = True
@@ -34,7 +44,7 @@ n_pred_dc = int(traj_length_dc/dt)                                  # Number of 
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
 n_traj_train = 250                                                  # Number of trajectories to execute, data collection
 n_traj_test = 100                                                   # Number of trajectories to execute, data collection
-x0_max = np.array([1., 1.])                                         # Initial value limits
+x0_max = np.array([1., 1., 1., 1.])                                         # Initial value limits
 directory = os.path.abspath("working_files/bkeedmd/")               # Path to save learned models
 
 # Model configuration parameters:
@@ -103,7 +113,7 @@ for n_multistep in n_multistep_lst:
         metric='loss',
         mode='min',
         max_t=net_params['epochs'],
-        grace_period=30,
+        grace_period=10,
     )
     result = tune.run(
         'trainable_pipeline',
