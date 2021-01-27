@@ -35,7 +35,7 @@ class KoopDnn():
         self.u_trainval = u_trainval
         self.t_eval = t_eval
 
-    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True, tune_run=False):
+    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True, tune_run=False, early_stop=False):
         self.net_params = net_params
         self.set_optimizer_()
         self.koopman_net.net_params = net_params
@@ -46,9 +46,9 @@ class KoopDnn():
 
         val_abs = int(len(dataset_trainval) * val_frac)
         dataset_train, dataset_val = random_split(dataset_trainval, [len(dataset_trainval) - val_abs, val_abs])
-        self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run)
+        self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run, early_stop=early_stop)
 
-    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False):
+    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False, early_stop_crit=5e-4, early_stop_max_count=5):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
@@ -57,6 +57,8 @@ class KoopDnn():
         trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net_params['batch_size'], shuffle=True)
         valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net_params['batch_size'], shuffle=True)
 
+        val_loss_prev = np.inf
+        no_improv_counter = 0
         for epoch in range(self.net_params['epochs']):
             running_loss = 0.0
             epoch_steps = 0
@@ -72,10 +74,6 @@ class KoopDnn():
 
                 running_loss += loss.item()
                 epoch_steps += 1
-                #if i % 100 == 99 and print_epoch:  # print every 100 mini-batches
-                #    print('[%d, %5d] loss: %.8f' %
-                #          (epoch + 1, i + 1, running_loss / 100))
-                #    running_loss = 0.0
 
             # Validation loss:
             val_loss = 0.0
@@ -94,12 +92,26 @@ class KoopDnn():
             if print_epoch:
                 print('Epoch %3d: train loss: %.8f, validation loss: %.8f' %(epoch + 1, running_loss/epoch_steps, val_loss/val_steps))
 
+            # Early stop if no improvement:
+            if early_stop:
+                if (val_loss/val_steps)/val_loss_prev >= 1 - early_stop_crit:
+                    no_improv_counter += 1
+                else:
+                    no_improv_counter = 0
+
+                if no_improv_counter >= early_stop_max_count:
+                    print('Early stopping activated, less than %.4f improvement for the last %2d epochs.'
+                          %(early_stop_crit, no_improv_counter))
+                    break
+                val_loss_prev = val_loss/val_steps
+
             # Save Ray Tune checkpoint:
             if tune_run:
                 with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
                     path = os.path.join(checkpoint_dir, "checkpoint")
                     torch.save((self.koopman_net.state_dict(), self.optimizer.state_dict()), path)
-                tune.report(loss=(val_loss/val_steps))
+                tune.report(loss=(val_loss / val_steps))
+
         print("Finished Training")
 
     def test_loss(self, x_test, u_test, t_eval_test):
@@ -176,9 +188,6 @@ class KoopDnn():
         traj_length = data_x.shape[1]
         n_multistep = self.net_params['n_multistep']
 
-        #x = data_x[:,:-1,:]
-        #u = data_u
-        #x_prime = data_x[:,1:,:]
         x = np.zeros((n_traj, traj_length-n_multistep, n*n_multistep))
         u = np.zeros((n_traj, traj_length-n_multistep, m*n_multistep))
         x_prime = np.zeros((n_traj, traj_length - n_multistep, n * n_multistep))

@@ -57,25 +57,17 @@ class KoopmanNet(nn.Module):
         n_tot = int(self.net_params['first_obs_const']) + n + self.net_params['encoder_output_dim']
         if first_obs_const:
             z = torch.cat((torch.ones((x.shape[0], 1)).to(device), x, self.encode_forward_(x)), 1)
-            #z_prime = torch.cat((torch.ones((x_prime.shape[0], 1)), x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (torch.ones((x_prime_vec.shape[0],1)).to(device),
                  x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
                 ii in range(n_multistep)], 1)
         else:
             z = torch.cat((x, self.encode_forward_(x)), 1)
-            #z_prime = torch.cat((x_prime, self.encode_forward_(x_prime)), 1)
             z_prime = torch.cat([torch.cat(
                 (x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for
                                  ii in range(n_multistep)], 1)
-        #z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc_drift.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
-
-        #z_u = torch.cat([torch.transpose(torch.mul(torch.transpose(z,0,1), u), 0,1) for u in torch.transpose(u_vec,0,1)], 1)
-
-        #z_pred = torch.zeros((z.shape[0], n_tot*(n_multistep+1)))
         z_pred = z
         z_prime_pred = torch.empty((z.shape[0],0)).to(device)
-        #z_u_pred = torch.zeros((z_prime_pred.shape[0], m*n_tot*n_multistep))
         z_u_pred = torch.cat(
             [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u), 0, 1) for u in torch.transpose(u_vec, 0, 1)], 1)
         if self.net_params['override_kinematics']:
