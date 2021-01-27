@@ -56,7 +56,7 @@ class KoopmanNetAut(nn.Module):
 
         return outputs
 
-    def loss(self, outputs, labels):
+    def loss(self, outputs, labels, validation=False):
         # output = [x_pred, x_prime_pred, lin_error]
         # labels = [x, x_prime], penalize when lin_error is not zero
 
@@ -72,7 +72,11 @@ class KoopmanNetAut(nn.Module):
         pred_loss = criterion(x_prime_pred, x_prime)/n_multistep
         lin_loss = criterion(z_prime_pred, z_prime)/n_multistep
 
-        total_loss = pred_loss + alpha * lin_loss
+        if validation:
+            total_loss = pred_loss
+        else:
+            total_loss = pred_loss + alpha * lin_loss
+
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
             l1_reg = self.net_params['l1_reg']
             total_loss += l1_reg * torch.norm(self.koopman_fc_drift.weight.flatten(), p=1)
