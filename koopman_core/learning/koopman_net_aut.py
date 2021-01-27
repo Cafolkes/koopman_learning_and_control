@@ -32,6 +32,11 @@ class KoopmanNetAut(nn.Module):
         # output = [x_pred, x_prime_pred, lin_error]
         n = self.net_params['state_dim']
         n_multistep = self.net_params['n_multistep']
+
+        device = 'cpu'
+        if torch.cuda.is_available():
+            device = 'cuda:0'
+
         x_vec = data[:, :n*n_multistep]
         x_prime_vec = data[:, n*n_multistep:]
 
@@ -42,7 +47,7 @@ class KoopmanNetAut(nn.Module):
         # Define linearity networks:
         n_tot = n + self.net_params['encoder_output_dim']
         z_prime = torch.cat([torch.cat((x_prime_vec[:, n*ii:n*(ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)], 1)
-        z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc_drift.weight + torch.eye(n_tot), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
+        z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(self.koopman_fc_drift.weight + torch.eye(n_tot).to(device), ii+1), 0, 1)) for ii in range(n_multistep)], 1)
 
         # Define prediction network:
         x_prime_pred = torch.cat([torch.matmul(z_prime_pred[:,n_tot*ii:n_tot*(ii+1)], torch.transpose(self.C, 0, 1)) for ii in range(n_multistep)], 1)
