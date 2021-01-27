@@ -138,7 +138,7 @@ for n_multistep in n_multistep_lst:
         metric='loss',
         mode='min',
         max_t=net_params['epochs'],
-        grace_period=5
+        grace_period=30,
     )
     result = tune.run(
         'trainable_pipeline',
