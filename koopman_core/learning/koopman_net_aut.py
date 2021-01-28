@@ -10,27 +10,18 @@ class KoopmanNetAut(nn.Module):
 
         self.encoder = None
         self.decoder = None
-        self.construct_net()
-
-        n = self.net_params['state_dim']
-        n_encode = self.net_params['encoder_output_dim']
-        first_obs_const = int(self.net_params['first_obs_const'])
-        self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, n_encode))), 1)
 
         self.device = 'cpu'
         if torch.cuda.is_available():
             self.self.device = 'cuda:0'
-
-        # TODO: Implement bias (see controlled version...)
-        # TODO: Handle bias terms if one should be add ed to observables
-        # TODO: Support adding state to observables
-        # TODO: Support overriding kinematics
 
     def construct_net(self):
         n = self.net_params['state_dim']
         encoder_output_dim = self.net_params['encoder_output_dim']
         first_obs_const = self.net_params['first_obs_const']
         n_tot = n + encoder_output_dim + int(first_obs_const)
+
+        self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, encoder_output_dim))), 1)
 
         self.construct_encoder_()
         if self.net_params['override_kinematics']:
@@ -54,8 +45,8 @@ class KoopmanNetAut(nn.Module):
         z = torch.cat((torch.ones((x.shape[0], first_obs_const)).to(self.device), x, self.encode_forward_(x)), 1)
         z_prime = torch.cat([torch.cat(
             (torch.ones((x_prime_vec.shape[0], first_obs_const)).to(self.device),
-             x_prime_vec[:, n*ii:n * (ii+1)], self.encode_forward_(x_prime_vec[:, n*ii:n * (ii+1)])), 1) for
-            ii in range(n_multistep)], 1)
+             x_prime_vec[:, n*ii:n*(ii+1)],
+             self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)], 1)
 
         # Define linearity networks:
         drift_matrix = self.construct_drift_matrix_()
@@ -104,7 +95,7 @@ class KoopmanNetAut(nn.Module):
         if validation:
             total_loss = pred_loss
         else:
-            total_loss = pred_loss + alpha * lin_loss
+            total_loss = pred_loss + alpha*lin_loss
 
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
             l1_reg = self.net_params['l1_reg']
@@ -114,20 +105,21 @@ class KoopmanNetAut(nn.Module):
 
     def construct_encoder_(self):
         input_dim = self.net_params['state_dim']
-        hidden_dim = self.net_params['encoder_hidden_dim']
+        hidden_width = self.net_params['encoder_hidden_width']
+        hidden_depth = self.net_params['encoder_hidden_depth']
         output_dim = self.net_params['encoder_output_dim']
 
-        if len(hidden_dim) > 0:
-            self.encoder_fc_in = nn.Linear(input_dim, hidden_dim[0])
+        if hidden_depth > 0:
+            self.encoder_fc_in = nn.Linear(input_dim, hidden_width)
             self.encoder_fc_hid = []
-            for ii in range(1, len(hidden_dim)):
-                self.encoder_fc_hid.append(nn.Linear(hidden_dim[ii - 1], hidden_dim[ii]))
-            self.encoder_fc_out = nn.Linear(hidden_dim[-1], output_dim)
+            for ii in range(1, hidden_depth):
+                self.encoder_fc_hid.append(nn.Linear(hidden_width, hidden_width))
+            self.encoder_fc_out = nn.Linear(hidden_width, output_dim)
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
     def encode_forward_(self, x):
-        if len(self.net_params['encoder_hidden_dim']) > 0:
+        if self.net_params['encoder_hidden_depth'] > 0:
             x = F.relu(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
                 x = F.relu(layer(x))
@@ -143,11 +135,12 @@ class KoopmanNetAut(nn.Module):
         return z
 
     def send_to(self, device):
-        hidden_dim = self.net_params['encoder_hidden_dim']
+        hidden_depth = self.net_params['encoder_hidden_depth']
+        hidden_width = self.net_params['encoder_hidden_width']
 
-        if len(hidden_dim) > 0:
+        if hidden_depth > 0:
             self.encoder_fc_in.to(device)
-            for ii in range(len(hidden_dim)-1):
+            for ii in range(hidden_depth-1):
                 self.encoder_fc_hid[ii].to(device)
             self.encoder_fc_out.to(device)
         else:

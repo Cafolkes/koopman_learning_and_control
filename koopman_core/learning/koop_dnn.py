@@ -17,7 +17,7 @@ class KoopDnn():
         self.net = net
         self.optimizer = None
         #self.set_optimizer_()
-        self.C = self.net.C.data.numpy()
+        self.C = None
 
         self.first_obs_const = first_obs_const
         self.standardizer = standardizer
@@ -34,9 +34,10 @@ class KoopDnn():
         self.u_trainval = u_trainval
 
     def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True, tune_run=False, early_stop=False):
-        #self.net_params = net_params
         self.net.net_params = net_params
+        self.net.construct_net()
         self.set_optimizer_()
+
 
         if self.u_trainval is None:
             X_kdnn, y_kdnn = self.net.process(self.x_trainval, np.tile(self.t_eval, (self.x_trainval.shape[0], 1)))
