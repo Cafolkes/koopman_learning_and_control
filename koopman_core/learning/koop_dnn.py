@@ -57,8 +57,8 @@ class KoopDnn():
             device = 'cuda:0'
         self.net.send_to(device)
 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'], shuffle=True)
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'], shuffle=True)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
 
         val_loss_prev = np.inf
         no_improv_counter = 0
@@ -75,7 +75,7 @@ class KoopDnn():
                 loss.backward()
                 self.optimizer.step()
 
-                running_loss += loss.item()
+                running_loss += loss.detach()
                 epoch_steps += 1
 
             # Validation loss:
@@ -88,7 +88,7 @@ class KoopDnn():
 
                     outputs = self.net(inputs)
                     loss = self.net.loss(outputs, labels, validation=True)
-                    val_loss += loss.cpu().numpy()
+                    val_loss += loss.detach()
                     val_steps += 1
 
             # Print epoch loss:
@@ -141,7 +141,7 @@ class KoopDnn():
 
                 outputs = self.net(inputs)
                 loss = self.net.loss(outputs, labels, validation=True)
-                test_loss += loss.cpu().numpy()
+                test_loss += loss.detach()
                 test_steps += 1
 
         return test_loss/test_steps

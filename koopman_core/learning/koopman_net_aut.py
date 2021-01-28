@@ -25,7 +25,7 @@ class KoopmanNetAut(nn.Module):
 
         self.construct_encoder_()
         if self.net_params['override_kinematics']:
-            self.koopman_fc_drift = nn.Linear(gin_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
+            self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
 
@@ -42,9 +42,9 @@ class KoopmanNetAut(nn.Module):
 
         # Define autoencoder networks:
         x = x_vec[:, :n]
-        z = torch.cat((torch.ones((x.shape[0], first_obs_const)).to(self.device), x, self.encode_forward_(x)), 1)
+        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=torch.device(self.device)), x, self.encode_forward_(x)), 1)
         z_prime = torch.cat([torch.cat(
-            (torch.ones((x_prime_vec.shape[0], first_obs_const)).to(self.device),
+            (torch.ones((x_prime_vec.shape[0], first_obs_const), device=torch.device(self.device)),
              x_prime_vec[:, n*ii:n*(ii+1)],
              self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)], 1)
 
@@ -65,14 +65,14 @@ class KoopmanNetAut(nn.Module):
         dt = self.net_params['dt']
 
         if override_kinematics:
-            const_obs_dyn = torch.zeros((first_obs_const, n_tot))
-            kinematics_dyn = torch.zeros((int(n/2), n_tot))
+            const_obs_dyn = torch.zeros((first_obs_const, n_tot), device=torch.device(self.device))
+            kinematics_dyn = torch.zeros((int(n/2), n_tot), device=torch.device(self.device))
             kinematics_dyn[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
-            drift_matrix = torch.cat((const_obs_dyn.to(self.device),
-                                      kinematics_dyn.to(self.device),
-                                      self.koopman_fc_drift.weight), 0) + torch.eye(n_tot).to(self.device)
+            drift_matrix = torch.cat((const_obs_dyn,
+                                      kinematics_dyn,
+                                      self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=torch.device(self.device))
         else:
-            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot).to(self.device)
+            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=torch.device(self.device))
 
         return drift_matrix
 
