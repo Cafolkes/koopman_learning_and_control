@@ -13,7 +13,7 @@ class KoopmanNetAut(nn.Module):
 
         self.device = 'cpu'
         if torch.cuda.is_available():
-            self.self.device = 'cuda:0'
+            self.device = 'cuda:0'
 
     def construct_net(self):
         n = self.net_params['state_dim']
@@ -25,7 +25,7 @@ class KoopmanNetAut(nn.Module):
 
         self.construct_encoder_()
         if self.net_params['override_kinematics']:
-            self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
+            self.koopman_fc_drift = nn.Linear(gin_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
 
