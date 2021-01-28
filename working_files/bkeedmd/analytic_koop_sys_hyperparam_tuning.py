@@ -58,12 +58,13 @@ net_params['data_dir'] = directory + '/data'
 net_params['n_multistep'] = 1
 
 # DNN architecture parameters:
-net_params['encoder_hidden_dim'] = [20, 20, 20]
-net_params['encoder_output_dim'] = 10
 net_params['epochs'] = 200
 net_params['optimizer'] = 'adam'
 
 # DNN tunable parameters:
+net_params['encoder_hidden_width'] = tune.choice([20, 50, 100, 200])
+net_params['encoder_hidden_depth'] = tune.choice([1, 2, 3, 4, 10])
+net_params['encoder_output_dim'] = tune.choice([1, 5, 10, 20])
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
 net_params['l2_reg'] = tune.loguniform(1e-6, 1e-1)
 net_params['l1_reg'] = tune.loguniform(1e-6, 1e-1)
@@ -72,8 +73,8 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
-n_multistep_lst = [1, 5, 10, 30]
+time_budget_s = 5*60*60                                      # Time budget for tuning process for each n_multistep value
+n_multistep_lst = [1, 10]
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
