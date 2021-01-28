@@ -151,10 +151,8 @@ class KoopDnn():
 
     def construct_dyn_mat_(self):
         self.net.send_to('cpu')
-        if self.continuous_mdl:
-            self.net.construct_dyn_mat_continuous()
-        else:
-            self.net.construct_dyn_mat_discrete()
+
+        self.net.construct_dyn_mat()
         self.A = self.net.A
         try:
             self.B = self.net.B

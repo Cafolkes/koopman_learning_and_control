@@ -15,7 +15,7 @@ class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics)
         if B is not None:
             n, m = B.shape
         else:
-            n, m = A.shape[0], -1
+            n, m = A.shape[0], None
 
         assert A.shape == (n, n)
 
