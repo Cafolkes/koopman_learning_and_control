@@ -88,7 +88,7 @@ class KoopDnn():
 
                     outputs = self.net(inputs)
                     loss = self.net.loss(outputs, labels, validation=True)
-                    val_loss += loss.detach()
+                    val_loss += float(loss.detach())
                     val_steps += 1
 
             # Print epoch loss:

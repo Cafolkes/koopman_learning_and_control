@@ -136,7 +136,6 @@ class KoopmanNetAut(nn.Module):
 
     def send_to(self, device):
         hidden_depth = self.net_params['encoder_hidden_depth']
-        hidden_width = self.net_params['encoder_hidden_width']
 
         if hidden_depth > 0:
             self.encoder_fc_in.to(device)
