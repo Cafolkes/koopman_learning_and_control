@@ -152,8 +152,6 @@ class KoopDnn():
         self.C = self.net.C
 
     def construct_dyn_mat_(self):
-        self.net.send_to('cpu')
-
         self.net.construct_dyn_mat()
         self.A = self.net.A
         try:
