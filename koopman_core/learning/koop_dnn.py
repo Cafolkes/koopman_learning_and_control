@@ -147,6 +147,7 @@ class KoopDnn():
         return test_loss/test_steps
 
     def construct_koopman_model(self):
+        self.net.send_to('cpu')
         self.construct_dyn_mat_()
         self.construct_basis_()
         self.C = self.net.C
