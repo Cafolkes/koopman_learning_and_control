@@ -181,4 +181,4 @@ class KoopmanNetAut(nn.Module):
         return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]
 
     def construct_dyn_mat(self):
-        self.A = self.construct_drift_matrix_().data.numpy()
+        self.A = self.construct_drift_matrix_().cpu().data.numpy()
