@@ -73,7 +73,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 6*60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 60#6*60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 10]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -161,13 +161,14 @@ for best_trial in best_trial_lst:
     # Calculate test loss:
     net = KoopmanNetAut(best_trial.config)
     best_model = KoopDnn(net)
+    best_model.net.construct_net()
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.net.load_state_dict(model_state)
     test_loss.append(best_model.test_loss(xs_test, t_eval_test))
 
     # Calculate open loop mse and std:
-    n_tot = net_params['state_dim'] + net_params['encoder_output_dim'] + int(net_params['first_obs_const'])
+    n_tot = best_trial.config['state_dim'] + best_trial.config['encoder_output_dim'] + int(best_trial.config['first_obs_const'])
     best_model.construct_koopman_model()
     sys_kdnn = LinearLiftedDynamics(best_model.A, None, best_model.C, best_model.basis_encode, continuous_mdl=False, dt=dt)
     mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test)
