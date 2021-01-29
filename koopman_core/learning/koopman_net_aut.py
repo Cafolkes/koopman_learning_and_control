@@ -72,7 +72,7 @@ class KoopmanNetAut(nn.Module):
                                       kinematics_dyn,
                                       self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=torch.device(self.device))
         else:
-            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=torch.device(self.device))
+            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=torch.device(self.koopman_fc_drift.weight.device))
 
         return drift_matrix
 
@@ -181,4 +181,4 @@ class KoopmanNetAut(nn.Module):
         return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]
 
     def construct_dyn_mat(self):
-        self.A = self.construct_drift_matrix_().cpu().data.numpy()
+        self.A = self.construct_drift_matrix_().data.numpy()
