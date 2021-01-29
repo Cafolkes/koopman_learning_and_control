@@ -65,14 +65,14 @@ class KoopmanNetAut(nn.Module):
         dt = self.net_params['dt']
 
         if override_kinematics:
-            const_obs_dyn = torch.zeros((first_obs_const, n_tot), device=torch.device(self.device))
-            kinematics_dyn = torch.zeros((int(n/2), n_tot), device=torch.device(self.device))
+            const_obs_dyn = torch.zeros((first_obs_const, n_tot), device=self.koopman_fc_drift.weight.device)
+            kinematics_dyn = torch.zeros((int(n/2), n_tot), device=self.koopman_fc_drift.weight.device)
             kinematics_dyn[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
             drift_matrix = torch.cat((const_obs_dyn,
                                       kinematics_dyn,
-                                      self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=torch.device(self.device))
+                                      self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
         else:
-            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=torch.device(self.koopman_fc_drift.weight.device))
+            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
 
         return drift_matrix
 
