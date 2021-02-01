@@ -123,18 +123,18 @@ class KoopDnn():
 
         print("Finished Training")
 
-    def test_loss(self, x_test, t_eval_test, u_test=None):
+    def test_loss(self, x_test, t_test, u_test=None):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
         self.net.send_to(device)
 
-        if self.u_trainval is None:
-            X_kdnn, y_kdnn = self.net.process(x_test, np.tile(t_eval_test, (x_test.shape[0], 1)))
+        if self.u_train is None:
+            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)))
         else:
-            X_kdnn, y_kdnn = self.net.process(x_test, u_test, np.tile(t_eval_test, (x_test.shape[0], 1)))
+            X_test, y_test = self.net.process(x_test, u_test, np.tile(t_test, (x_test.shape[0], 1)))
 
-        X_t, y_t = torch.from_numpy(X_kdnn).float(), torch.from_numpy(y_kdnn).float()
+        X_t, y_t = torch.from_numpy(X_test).float(), torch.from_numpy(y_test).float()
         dataset_test = torch.utils.data.TensorDataset(X_t, y_t)
         testloader = torch.utils.data.DataLoader(dataset_test, batch_size=self.net.net_params['batch_size'], shuffle=True)
 

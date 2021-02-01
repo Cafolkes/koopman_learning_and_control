@@ -78,6 +78,9 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
         zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[:-1])
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T
 
+        if sys.standardizer is not None:
+            xs_pred[ii, :, :] = sys.standardizer.inverse_transform(xs_pred[ii, :, :])
+
     error = xs[:, :-1, :] - xs_pred
     mse = np.mean(np.square(error))
     std = np.std(error)

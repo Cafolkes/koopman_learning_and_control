@@ -13,6 +13,7 @@ from koopman_core.learning import KoopDnn, KoopmanNetAut
 from ray import tune
 from ray.tune.suggest.bohb import TuneBOHB
 from ray.tune.schedulers import HyperBandForBOHB, ASHAScheduler
+from sklearn import preprocessing
 import matplotlib.pyplot as plt
 
 class FiniteKoopSys(SystemDynamics):
@@ -42,17 +43,18 @@ dt = 1.0e-2                                                         # Time step 
 traj_length_dc = 8.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_train = 20 # TODO: set to 250                                                  # Number of trajectories to execute, data collection
-n_traj_test = 20 # TODO: set to 199                                                   # Number of trajectories to execute, data collection
-x0_max = np.array([1., 1., 1., 1.])                                         # Initial value limits
+n_traj_train = 250
+n_traj_val = int(0.2*n_traj_train)
+n_traj_test = 100                                                   # Number of trajectories to execute, data collection
+x0_max = np.array([1., 1., 1., 1.])                                 # Initial value limits
 directory = os.path.abspath("working_files/bkeedmd/")               # Path to save learned models
 
 # Model configuration parameters:
 net_params = {}
 net_params['state_dim'] = n
 net_params['ctrl_dim'] = m
-net_params['first_obs_const'] = False
-net_params['override_kinematics'] = False
+net_params['first_obs_const'] = True
+net_params['override_kinematics'] = True
 net_params['dt'] = dt
 net_params['data_dir'] = directory + '/data'
 net_params['n_multistep'] = 1
@@ -68,12 +70,12 @@ net_params['encoder_output_dim'] = tune.choice([1, 5, 10, 20])
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
 net_params['l2_reg'] = tune.loguniform(1e-6, 1e-1)
 net_params['l1_reg'] = tune.loguniform(1e-6, 1e-1)
-net_params['batch_size'] = tune.choice([16, 32, 64, 128])
+net_params['batch_size'] = tune.choice([32, 64, 128, 256, 512])
 net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 60#6*60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 120#6*60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 10]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -84,22 +86,24 @@ else:
 
 # Collect/load datasets:
 if collect_data:
-    xs_train, t_eval_train = run_experiment(system, n, n_traj_train, n_pred_dc, t_eval, x0_max)
+    xs_train, t_train = run_experiment(system, n, n_traj_train, n_pred_dc, t_eval, x0_max)
+    xs_val, t_val = run_experiment(system, n, n_traj_val, n_pred_dc, t_eval, x0_max)
     xs_test, t_eval_test = run_experiment(system, n, n_traj_test, n_pred_dc, t_eval, x0_max)
 
-    data_list = [xs_train, t_eval_train, n_traj_train, xs_test, t_eval_test, n_traj_test]
+    data_list = [xs_train, t_train, n_traj_train, xs_val, t_val, n_traj_val, xs_test, t_eval_test, n_traj_test]
     outfile = open(directory + '/data/' + sys_name + '_data.pickle', 'wb')
     dill.dump(data_list, outfile)
     outfile.close()
 else:
     infile = open(directory + '/data/' + sys_name + '_data.pickle', 'rb')
-    xs_train, t_eval_train, n_traj_train, xs_test, t_eval_test, n_traj_test = dill.load(infile)
+    xs_train, t_train, n_traj_train, xs_val, t_val, n_traj_val, xs_test, t_eval_test, n_traj_test = dill.load(infile)
     infile.close()
 
 # Define Koopman DNN model:
-net = KoopmanNetAut(net_params)
+standardizer_kdnn = preprocessing.StandardScaler()
+net = KoopmanNetAut(net_params, standardizer=standardizer_kdnn)
 model_kdnn = KoopDnn(net)
-model_kdnn.set_datasets(xs_train, t_eval_train)
+model_kdnn.set_datasets(xs_train, t_train, x_val=xs_val, t_val=t_val)
 
 # Set up hyperparameter tuning:
 trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)

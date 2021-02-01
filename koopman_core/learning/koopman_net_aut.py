@@ -119,12 +119,15 @@ class KoopmanNetAut(nn.Module):
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
+        self.encoder_fc_out_norm = nn.BatchNorm1d(output_dim)
+
     def encode_forward_(self, x):
         if self.net_params['encoder_hidden_depth'] > 0:
             x = F.relu(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
                 x = F.relu(layer(x))
         x = self.encoder_fc_out(x)
+        x = self.encoder_fc_out_norm(x)
 
         return x
 
