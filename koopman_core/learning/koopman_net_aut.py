@@ -148,6 +148,7 @@ class KoopmanNetAut(nn.Module):
             self.encoder_fc_out.to(device)
         else:
             self.encoder_fc_out.to(device)
+        self.encoder_fc_out_norm.to(device)
 
         self.koopman_fc_drift.to(device)
         self.C = self.C.to(device)
