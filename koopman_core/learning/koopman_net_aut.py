@@ -4,9 +4,10 @@ import torch.nn.functional as F
 import numpy as np
 
 class KoopmanNetAut(nn.Module):
-    def __init__(self, net_params):
+    def __init__(self, net_params, standardizer=None):
         super(KoopmanNetAut, self).__init__()
         self.net_params = net_params
+        self.standardizer = standardizer
 
         self.encoder = None
         self.decoder = None
@@ -97,7 +98,7 @@ class KoopmanNetAut(nn.Module):
         else:
             total_loss = pred_loss + alpha*lin_loss
 
-        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:  # TODO: Verify correct l1-regularization
+        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
             l1_reg = self.net_params['l1_reg']
             total_loss += l1_reg * torch.norm(self.koopman_fc_drift.weight.flatten(), p=1)
 
@@ -148,37 +149,47 @@ class KoopmanNetAut(nn.Module):
         self.koopman_fc_drift.to(device)
         self.C = self.C.to(device)
 
-
-    def process(self, data, t, downsample_rate=1):
+    def process(self, data, t, downsample_rate=1, train_data=False):
         n = self.net_params['state_dim']
         n_traj = data.shape[0]
-
         traj_length = data.shape[1]
         n_multistep = self.net_params['n_multistep']
         x = np.zeros((n_traj, traj_length-n_multistep, n*n_multistep))
         x_prime = np.zeros((n_traj, traj_length - n_multistep, n * n_multistep))
+
+        data_scaled = self.preprocess_data(data, train_data)
         for ii in range(n_multistep):
-            x[:, :, n*ii:n*(ii+1)] = data[:, ii:-(n_multistep-ii), :]
+            x[:, :, n*ii:n*(ii+1)] = data_scaled[:, ii:-(n_multistep-ii), :]
             if ii + 1 < n_multistep:
-                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:-(n_multistep - ii - 1), :]
+                x_prime[:, :, n*ii:n*(ii+1)] = data_scaled[:, ii+1:-(n_multistep - ii - 1), :]
             else:
-                x_prime[:, :, n*ii:n*(ii+1)] = data[:, ii+1:, :]
+                x_prime[:, :, n*ii:n*(ii+1)] = data_scaled[:, ii+1:, :]
 
         order = 'F'
         n_data_pts = n_traj * (t[0,:].shape[0] - n_multistep)
         x_flat = x.T.reshape((n*n_multistep, n_data_pts), order=order)
         x_prime_flat = x_prime.T.reshape((n*n_multistep, n_data_pts), order=order)
 
-        #if self.standardizer is None:
-        x_flat, x_prime_flat = x_flat.T, x_prime_flat.T
-        #else:
-            #pass
-            #self.standardizer.fit(x_flat.T)
-            #x_flat, x_prime_flat = self.standardizer.transform(x_flat.T), x_prime_flat.T
+        X = np.concatenate((x_flat.T, x_prime_flat.T), axis=1)
+        y = x_prime_flat[::downsample_rate,:].T
 
-        X = np.concatenate((x_flat, x_prime_flat), axis=1)
+        return X[::downsample_rate,:], y[::downsample_rate,:]
 
-        return X[::downsample_rate,:], x_prime_flat[::downsample_rate,:]
+    def preprocess_data(self, data, train_data):
+        n = self.net_params['state_dim']
+        n_traj = data.shape[0]
+        traj_length = data.shape[1]
+        data_flat = data.T.reshape((n, n_traj*traj_length), order='F')
+
+        if train_data and self.standardizer is not None:
+            self.standardizer.fit(data_flat.T)
+
+        if self.standardizer is None:
+            data_scaled = data
+        else:
+            data_scaled = np.array([self.standardizer.transform(d) for d in data])
+
+        return data_scaled
 
     def construct_dyn_mat(self):
         self.A = self.construct_drift_matrix_().data.numpy()

@@ -9,46 +9,52 @@ class KoopDnn():
     '''
     Class for neural network-based Koopman methods to learn dynamics models of autonomous and controlled dynamical systems.
     '''
-    def __init__(self, net, standardizer=None, first_obs_const=True,
+    def __init__(self, net, first_obs_const=True,
                  continuous_mdl=False, dt=None):
         self.A = None
         self.B = None
 
         self.net = net
         self.optimizer = None
-        #self.set_optimizer_()
         self.C = None
 
         self.first_obs_const = first_obs_const
-        self.standardizer = standardizer
         self.continuous_mdl = continuous_mdl
         self.dt = dt
 
-        self.x_trainval = None
-        self.u_trainval = None
-        self.t_eval = None
+        self.x_train = None
+        self.u_train = None
+        self.t_train = None
+        self.x_val = None
+        self.u_val = None
+        self.t_val = None
 
-    def set_datasets(self, x_trainval, t_eval, u_trainval=None):
-        self.x_trainval = x_trainval
-        self.t_eval = t_eval
-        self.u_trainval = u_trainval
+    def set_datasets(self, x_train, t_train, u_train=None, x_val=None, t_val=None, u_val=None):
+        self.x_train = x_train
+        self.t_train = np.tile(t_train, (self.x_train.shape[0], 1))
+        self.u_train = u_train
 
-    def model_pipeline(self, net_params, val_frac=0.2, print_epoch=True, tune_run=False, early_stop=False):
+        self.x_val = x_val
+        self.t_val = np.tile(t_val, (self.x_val.shape[0], 1))
+        self.u_val = u_val
+
+    def model_pipeline(self, net_params, print_epoch=True, tune_run=False, early_stop=False):
         self.net.net_params = net_params
         self.net.construct_net()
         self.set_optimizer_()
 
-
-        if self.u_trainval is None:
-            X_kdnn, y_kdnn = self.net.process(self.x_trainval, np.tile(self.t_eval, (self.x_trainval.shape[0], 1)))
+        if self.u_train is None:
+            X_train, y_train = self.net.process(self.x_train, self.t_train, train_data=True)
+            X_val, y_val = self.net.process(self.x_val, self.t_val)
         else:
-            X_kdnn, y_kdnn = self.net.process(self.x_trainval, self.u_trainval, np.tile(self.t_eval, (self.x_trainval.shape[0], 1)))
+            X_train, y_train = self.net.process(self.x_train, self.u_train, self.t_train, train_data=True)
+            X_val, y_val = self.net.process(self.x_val, self.u_val, self.t_val)
 
-        X_t, y_t = torch.from_numpy(X_kdnn).float(), torch.from_numpy(y_kdnn).float()
-        dataset_trainval = torch.utils.data.TensorDataset(X_t, y_t)
+        X_train_t, y_train_t = torch.from_numpy(X_train).float(), torch.from_numpy(y_train).float()
+        X_val_t, y_val_t = torch.from_numpy(X_val).float(), torch.from_numpy(y_val).float()
+        dataset_train = torch.utils.data.TensorDataset(X_train_t, y_train_t)
+        dataset_val = torch.utils.data.TensorDataset(X_val_t, y_val_t)
 
-        val_abs = int(len(dataset_trainval) * val_frac)
-        dataset_train, dataset_val = random_split(dataset_trainval, [len(dataset_trainval) - val_abs, val_abs])
         self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run, early_stop=early_stop)
 
     def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False, early_stop_crit=5e-4, early_stop_max_count=5):
@@ -57,15 +63,15 @@ class KoopDnn():
             device = 'cuda:0'
         self.net.send_to(device)
 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=0, pin_memory=True)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=0, pin_memory=True)
 
         val_loss_prev = np.inf
         no_improv_counter = 0
         for epoch in range(self.net.net_params['epochs']):
             running_loss = 0.0
             epoch_steps = 0
-            for i, data in enumerate(trainloader):
+            for data in trainloader:
                 inputs, labels = data
                 inputs, labels = inputs.to(device), labels.to(device)
 
@@ -81,7 +87,7 @@ class KoopDnn():
             # Validation loss:
             val_loss = 0.0
             val_steps = 0
-            for i, data in enumerate(valloader):
+            for data in valloader:
                 with torch.no_grad():
                     inputs, labels = data
                     inputs, labels = inputs.to(device), labels.to(device)
@@ -149,7 +155,6 @@ class KoopDnn():
     def construct_koopman_model(self):
         self.net.send_to('cpu')
         self.construct_dyn_mat_()
-        self.construct_basis_()
         self.C = self.net.C
 
     def construct_dyn_mat_(self):
@@ -160,8 +165,13 @@ class KoopDnn():
         except AttributeError:
             pass
 
-    def construct_basis_(self):
-        self.basis_encode = lambda x: self.net.encode(np.atleast_2d(x))
+    def basis_encode(self, x):
+        if self.net.standardizer is None:
+            x_scaled = np.atleast_2d(x)
+        else:
+            x_scaled = self.net.standardizer.transform(x)
+
+        return self.net.encode(x_scaled)
 
     def set_optimizer_(self):
         if self.net.net_params['optimizer'] == 'sgd':
@@ -172,5 +182,4 @@ class KoopDnn():
             lr = self.net.net_params['lr']
             weight_decay = self.net.net_params['l2_reg']
             self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
-            # TODO: How does net.parameters() command know about all weights that are supposed to be optimized?
 

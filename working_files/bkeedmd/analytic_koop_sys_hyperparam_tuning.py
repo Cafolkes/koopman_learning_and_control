@@ -42,8 +42,8 @@ dt = 1.0e-2                                                         # Time step 
 traj_length_dc = 8.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_train = 250                                                  # Number of trajectories to execute, data collection
-n_traj_test = 100                                                   # Number of trajectories to execute, data collection
+n_traj_train = 20 # TODO: set to 250                                                  # Number of trajectories to execute, data collection
+n_traj_test = 20 # TODO: set to 199                                                   # Number of trajectories to execute, data collection
 x0_max = np.array([1., 1., 1., 1.])                                         # Initial value limits
 directory = os.path.abspath("working_files/bkeedmd/")               # Path to save learned models
 
