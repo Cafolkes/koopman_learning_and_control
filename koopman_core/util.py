@@ -85,4 +85,4 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
     mse = np.mean(np.square(error))
     std = np.std(error)
 
-    return mse, std
+    return error, mse, std

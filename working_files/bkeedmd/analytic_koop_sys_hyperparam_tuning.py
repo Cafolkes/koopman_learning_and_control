@@ -75,7 +75,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -100,7 +100,7 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-standardizer_kdnn = preprocessing.StandardScaler()
+standardizer_kdnn = preprocessing.StandardScaler(with_mean=False)
 net = KoopmanNetAut(net_params, standardizer=standardizer_kdnn)
 model_kdnn = KoopDnn(net)
 model_kdnn.set_datasets(xs_train, t_train, x_val=xs_val, t_val=t_val)
@@ -175,8 +175,9 @@ for best_trial in best_trial_lst:
     # Calculate open loop mse and std:
     n_tot = best_trial.config['state_dim'] + best_trial.config['encoder_output_dim'] + int(best_trial.config['first_obs_const'])
     best_model.construct_koopman_model()
-    sys_kdnn = LinearLiftedDynamics(best_model.A, None, best_model.C, best_model.basis_encode, continuous_mdl=False, dt=dt)
-    mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test)
+    sys_kdnn = LinearLiftedDynamics(best_model.A, None, best_model.C, best_model.basis_encode, continuous_mdl=False,
+                                    dt=dt, standardizer=standardizer_kdnn)
+    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test)
     open_loop_mse.append(mse)
     open_loop_std.append(std)
 
