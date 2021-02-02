@@ -75,7 +75,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 120#2*60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -151,6 +151,7 @@ for n_multistep in n_multistep_lst:
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
     best_config_lst.append(result.get_best_config("loss", "min"))
+    print(best_config_lst[-1])
 
 # Analyze the results:
 val_loss = []
@@ -169,7 +170,7 @@ for best_trial in best_trial_lst:
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.net.load_state_dict(model_state)
-    test_loss.append(best_model.test_loss(xs_test, t_eval_test))
+    test_loss.append(best_model.test_loss(xs_test, t_eval_test).cpu())
 
     # Calculate open loop mse and std:
     n_tot = best_trial.config['state_dim'] + best_trial.config['encoder_output_dim'] + int(best_trial.config['first_obs_const'])
