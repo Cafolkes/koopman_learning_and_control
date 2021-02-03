@@ -19,14 +19,14 @@ class KoopmanNetAut(nn.Module):
     def construct_net(self):
         n = self.net_params['state_dim']
         encoder_output_dim = self.net_params['encoder_output_dim']
-        first_obs_const = self.net_params['first_obs_const']
-        n_tot = n + encoder_output_dim + int(first_obs_const)
+        first_obs_const = int(self.net_params['first_obs_const'])
+        n_tot = n + encoder_output_dim + first_obs_const
 
         self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, encoder_output_dim))), 1)
 
         self.construct_encoder_()
         if self.net_params['override_kinematics']:
-            self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(int(first_obs_const) + int(n/2)), bias=False)
+            self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(first_obs_const + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
 

@@ -75,7 +75,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -100,7 +100,8 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-standardizer_kdnn = preprocessing.StandardScaler(with_mean=False)
+#standardizer_kdnn = preprocessing.StandardScaler(with_mean=False)
+standardizer_kdnn = None
 net = KoopmanNetAut(net_params, standardizer=standardizer_kdnn)
 model_kdnn = KoopDnn(net)
 model_kdnn.set_datasets(xs_train, t_train, x_val=xs_val, t_val=t_val)
