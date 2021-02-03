@@ -11,6 +11,7 @@ class KoopmanNetAut(nn.Module):
 
         self.encoder = None
         self.decoder = None
+        self.optimization_parameters = []
 
         self.device = 'cpu'
         if torch.cuda.is_available():
@@ -29,6 +30,8 @@ class KoopmanNetAut(nn.Module):
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(first_obs_const + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
+
+        self.optimization_parameters.append(self.koopman_fc_drift.weight)
 
     def forward(self, data):
         # data = [x, x_prime]
@@ -72,6 +75,7 @@ class KoopmanNetAut(nn.Module):
             drift_matrix = torch.cat((const_obs_dyn,
                                       kinematics_dyn,
                                       self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
+
         else:
             drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
 
@@ -112,14 +116,19 @@ class KoopmanNetAut(nn.Module):
 
         if hidden_depth > 0:
             self.encoder_fc_in = nn.Linear(input_dim, hidden_width)
+            self.optimization_parameters.append(self.encoder_fc_in.weight)
             self.encoder_fc_hid = []
             for ii in range(1, hidden_depth):
                 self.encoder_fc_hid.append(nn.Linear(hidden_width, hidden_width))
+                self.optimization_parameters.append(self.encoder_fc_hid[-1].weight)
             self.encoder_fc_out = nn.Linear(hidden_width, output_dim)
+            self.optimization_parameters.append(self.encoder_fc_out.weight)
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
+            self.optimization_parameters.append(self.encoder_fc_out.weight)
 
         self.encoder_fc_out_norm = nn.BatchNorm1d(output_dim)
+        self.optimization_parameters.append(self.encoder_fc_out_norm.weight)
 
     def encode_forward_(self, x):
         if self.net_params['encoder_hidden_depth'] > 0:
