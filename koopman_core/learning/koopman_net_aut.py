@@ -11,6 +11,7 @@ class KoopmanNetAut(nn.Module):
 
         self.encoder = None
         self.decoder = None
+        self.optimization_parameters = []
 
         self.device = 'cpu'
         if torch.cuda.is_available():
@@ -30,6 +31,8 @@ class KoopmanNetAut(nn.Module):
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot, bias=False)
 
+        self.optimization_parameters.append(self.koopman_fc_drift.weight)
+
     def forward(self, data):
         # data = [x, x_prime]
         # output = [x_pred, x_prime_pred, lin_error]
@@ -44,19 +47,20 @@ class KoopmanNetAut(nn.Module):
         # Define autoencoder networks:
         x = x_vec[:, :n]
         z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=torch.device(self.device)), x, self.encode_forward_(x)), 1)
-        z_prime = torch.cat([torch.cat(
+        z_prime_diff = torch.cat([torch.cat(
             (torch.ones((x_prime_vec.shape[0], first_obs_const), device=torch.device(self.device)),
              x_prime_vec[:, n*ii:n*(ii+1)],
-             self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) for ii in range(n_multistep)], 1)
+             self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) - z for ii in range(n_multistep)], 1)  # TODO: Verify that - z correct
 
         # Define linearity networks:
         drift_matrix = self.construct_drift_matrix_()
-        z_prime_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(drift_matrix, ii + 1), 0, 1)) for ii in range(n_multistep)], 1)
+        # TODO: Implement multistep pred with difference matrix
+        z_prime_diff_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(drift_matrix, ii + 1), 0, 1)) for ii in range(n_multistep)], 1)
 
         # Define prediction network:
-        x_prime_pred = torch.cat([torch.matmul(z_prime_pred[:,n_tot*ii:n_tot*(ii+1)], torch.transpose(self.C, 0, 1)) for ii in range(n_multistep)], 1)
+        x_prime_diff_pred = torch.cat([torch.matmul(z_prime_diff_pred[:,n_tot*ii:n_tot*(ii+1)], torch.transpose(self.C, 0, 1)) for ii in range(n_multistep)], 1)
 
-        return torch.cat((x_prime_pred, z_prime_pred, z_prime), 1)
+        return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
 
     def construct_drift_matrix_(self):
         n = self.net_params['state_dim']
@@ -71,27 +75,29 @@ class KoopmanNetAut(nn.Module):
             kinematics_dyn[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
             drift_matrix = torch.cat((const_obs_dyn,
                                       kinematics_dyn,
-                                      self.koopman_fc_drift.weight), 0) + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
+                                      self.koopman_fc_drift.weight), 0) #+ torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
+
         else:
-            drift_matrix = self.koopman_fc_drift.weight + torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
+            drift_matrix = self.koopman_fc_drift.weight #+ torch.eye(n_tot, device=self.koopman_fc_drift.weight.device)
 
         return drift_matrix
 
     def loss(self, outputs, labels, validation=False):
         # output = [x_pred, x_prime_pred, lin_error]
         # labels = [x, x_prime], penalize when lin_error is not zero
-
+        #TODO: Change loss composition such that lin_loss doesn't contain prediction loss..
         n = self.net_params['state_dim']
         n_tot = n + self.net_params['encoder_output_dim'] + int(self.net_params['first_obs_const'])
         n_multistep = self.net_params['n_multistep']
-        x_prime_pred, x_prime = outputs[:, :n*n_multistep], labels
-        z_prime_pred, z_prime = outputs[:, n*n_multistep:n*n_multistep+n_tot*n_multistep], outputs[:, n*n_multistep+n_tot*n_multistep:]
+        dt = self.net_params['dt']
+        x_prime_diff_pred, x_prime_diff = outputs[:, :n*n_multistep], labels
+        z_prime_diff_pred, z_prime_diff = outputs[:, n*n_multistep:n*n_multistep+n_tot*n_multistep], outputs[:, n*n_multistep+n_tot*n_multistep:]
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        pred_loss = criterion(x_prime_pred, x_prime)/n_multistep
-        lin_loss = criterion(z_prime_pred, z_prime)/n_multistep
+        pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)/n_multistep
+        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_multistep
 
         if validation:
             total_loss = pred_loss
@@ -112,14 +118,23 @@ class KoopmanNetAut(nn.Module):
 
         if hidden_depth > 0:
             self.encoder_fc_in = nn.Linear(input_dim, hidden_width)
+            self.optimization_parameters.append(self.encoder_fc_in.weight)
+            self.optimization_parameters.append(self.encoder_fc_in.bias)
             self.encoder_fc_hid = []
             for ii in range(1, hidden_depth):
                 self.encoder_fc_hid.append(nn.Linear(hidden_width, hidden_width))
+                self.optimization_parameters.append(self.encoder_fc_hid[-1].weight)
+                self.optimization_parameters.append(self.encoder_fc_hid[-1].bias)
             self.encoder_fc_out = nn.Linear(hidden_width, output_dim)
+            self.optimization_parameters.append(self.encoder_fc_out.weight)
+            self.optimization_parameters.append(self.encoder_fc_out.bias)
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
+            self.optimization_parameters.append(self.encoder_fc_out.weight)
+            self.optimization_parameters.append(self.encoder_fc_out.bias)
 
         self.encoder_fc_out_norm = nn.BatchNorm1d(output_dim)
+        #self.optimization_parameters.append(self.encoder_fc_out_norm.weight)
 
     def encode_forward_(self, x):
         if self.net_params['encoder_hidden_depth'] > 0:
@@ -175,7 +190,7 @@ class KoopmanNetAut(nn.Module):
         x_prime_flat = x_prime.T.reshape((n*n_multistep, n_data_pts), order=order)
 
         X = np.concatenate((x_flat.T, x_prime_flat.T), axis=1)
-        y = x_prime_flat[::downsample_rate,:].T
+        y = x_prime_flat[::downsample_rate,:].T - x_flat.T
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
 
@@ -196,4 +211,9 @@ class KoopmanNetAut(nn.Module):
         return data_scaled
 
     def construct_dyn_mat(self):
-        self.A = self.construct_drift_matrix_().data.numpy()
+        n = self.net_params['state_dim']
+        first_obs_const = int(self.net_params['first_obs_const'])
+        n_tot = n + self.net_params['encoder_output_dim'] + first_obs_const
+        dt = self.net_params['dt']
+
+        self.A = self.construct_drift_matrix_().data.numpy()*dt + np.eye(n_tot)

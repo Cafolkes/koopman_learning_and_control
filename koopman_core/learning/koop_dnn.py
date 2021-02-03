@@ -177,9 +177,9 @@ class KoopDnn():
         if self.net.net_params['optimizer'] == 'sgd':
             lr = self.net.net_params['lr']
             momentum = self.net.net_params['momentum']
-            self.optimizer = optim.SGD(self.net.parameters(), lr=lr, momentum=momentum)
+            self.optimizer = optim.SGD(self.net.optimization_parameters, lr=lr, momentum=momentum)
         elif self.net.net_params['optimizer'] == 'adam':
             lr = self.net.net_params['lr']
             weight_decay = self.net.net_params['l2_reg']
-            self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
+            self.optimizer = optim.Adam(self.net.optimization_parameters, lr=lr, weight_decay=weight_decay)
 
