@@ -38,7 +38,7 @@ class KoopDnn():
         self.t_val = np.tile(t_val, (self.x_val.shape[0], 1))
         self.u_val = u_val
 
-    def model_pipeline(self, net_params, print_epoch=True, tune_run=False, early_stop=False):
+    def model_pipeline(self, net_params, print_epoch=True, tune_run=False, early_stop=False, plot_data=False):
         self.net.net_params = net_params
         self.net.construct_net()
         self.set_optimizer_()
@@ -49,6 +49,9 @@ class KoopDnn():
         else:
             X_train, y_train = self.net.process(self.x_train, self.u_train, self.t_train, train_data=True)
             X_val, y_val = self.net.process(self.x_val, self.u_val, self.t_val)
+
+        if plot_data:
+            self.plot_train_data_(X_train, y_train)
 
         X_train_t, y_train_t = torch.from_numpy(X_train).float(), torch.from_numpy(y_train).float()
         X_val_t, y_val_t = torch.from_numpy(X_val).float(), torch.from_numpy(y_val).float()
@@ -93,7 +96,7 @@ class KoopDnn():
                     inputs, labels = inputs.to(device), labels.to(device)
 
                     outputs = self.net(inputs)
-                    loss = self.net.loss(outputs, labels, validation=True)
+                    loss = self.net.loss(outputs, labels)
                     val_loss += float(loss.detach())
                     val_steps += 1
 
@@ -177,9 +180,32 @@ class KoopDnn():
         if self.net.net_params['optimizer'] == 'sgd':
             lr = self.net.net_params['lr']
             momentum = self.net.net_params['momentum']
-            self.optimizer = optim.SGD(self.net.parameters(), lr=lr, momentum=momentum)
+            self.optimizer = optim.SGD(self.net.optimization_parameters, lr=lr, momentum=momentum)
         elif self.net.net_params['optimizer'] == 'adam':
             lr = self.net.net_params['lr']
             weight_decay = self.net.net_params['l2_reg']
-            self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
+            self.optimizer = optim.Adam(self.net.optimization_parameters, lr=lr, weight_decay=weight_decay)
+
+    def plot_train_data_(self, X, y):
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+
+        fig = plt.figure(figsize=(15, 5))
+        ax = fig.add_subplot(121, projection='3d')
+        ax.scatter(X[:, 2], X[:, 3], y[:, 2], color="orange")
+        ax.set_xlabel('$x_1$')
+        ax.set_ylabel('$x_2$')
+        ax.set_zlabel("$x_1'$")
+        ax.set_title('One-step-ahead state, $x_1$')
+        ax.view_init(30, 70)
+
+        ax = fig.add_subplot(122, projection='3d')
+        ax.scatter(X[:, 2], X[:, 3], y[:, 3], color="orange")
+        ax.set_xlabel('$x_1$')
+        ax.set_ylabel('$x_2$')
+        ax.set_zlabel("$x_2'$")
+        ax.set_title('One-step-ahead state, $x_2$')
+        ax.view_init(30, 70)
+        plt.show()
+
 
