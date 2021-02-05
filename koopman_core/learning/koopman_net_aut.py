@@ -17,11 +17,6 @@ class KoopmanNetAut(nn.Module):
         if torch.cuda.is_available():
             self.device = 'cuda:0'
 
-    # TODO: Master TODO:
-        # TODO: Implement multistep prediction
-        # TODO: Clean up code
-        # TODO: Verify tuning script and run parameter tuning
-
     def construct_net(self):
         n = self.net_params['state_dim']
         encoder_output_dim = self.net_params['encoder_output_dim']
@@ -53,17 +48,11 @@ class KoopmanNetAut(nn.Module):
         # Define autoencoder networks:
         x = x_vec[:, :n]
         z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=torch.device(self.device)), x, self.encode_forward_(x)), 1)
-        #z_prime_diff = torch.cat([torch.cat(
-        #    (torch.ones((x_prime_vec.shape[0], first_obs_const), device=torch.device(self.device)),
-        #     x_prime_vec[:, n*ii:n*(ii+1)],
-        #     self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)])), 1) - z for ii in range(n_multistep)], 1)  # TODO: Verify that - z correct
-
         z_prime_diff = torch.cat([self.encode_forward_(x_prime_vec[:, n*ii:n*(ii+1)]) - z[:, first_obs_const + n:] for ii in range(n_multistep)], 1)  # TODO: Verify that - z correct
         # TODO: Assumes z = [x phi]^T, generalize?, implement for multistep
 
         # Define linearity networks:
         drift_matrix = self.construct_drift_matrix_()
-        # TODO: Implement multistep pred with difference matrix
         id_matrix = torch.eye(n_tot, device=torch.device(self.device))
         z_prime_diff_pred = torch.cat([torch.matmul(z, torch.transpose(torch.pow(drift_matrix + id_matrix, ii + 1) - id_matrix, 0, 1)) for ii in range(n_multistep)], 1)
 
@@ -155,16 +144,12 @@ class KoopmanNetAut(nn.Module):
             self.optimization_parameters.append(self.encoder_fc_out.weight)
             self.optimization_parameters.append(self.encoder_fc_out.bias)
 
-        #self.encoder_fc_out_norm = nn.BatchNorm1d(output_dim)
-        #self.optimization_parameters.append(self.encoder_fc_out_norm.weight)
-
     def encode_forward_(self, x):
         if self.net_params['encoder_hidden_depth'] > 0:
             x = F.relu(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
                 x = F.relu(layer(x))
         x = self.encoder_fc_out(x)
-        #x = self.encoder_fc_out_norm(x)  
 
         return x
 
@@ -185,7 +170,6 @@ class KoopmanNetAut(nn.Module):
             self.encoder_fc_out.to(device)
         else:
             self.encoder_fc_out.to(device)
-        #self.encoder_fc_out_norm.to(device)
 
         self.koopman_fc_drift.to(device)
         self.C = self.C.to(device)
