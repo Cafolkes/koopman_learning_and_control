@@ -73,7 +73,7 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
         else:
             ctrl = OpenLoopController(sys, us[ii, :, :], t_eval[:-1])
 
-        x0 = xs[ii,0,:]
+        x0 = xs[ii, 0, :]
         z0 = sys.basis(np.atleast_2d(x0)).squeeze()
         zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[:-1])
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T

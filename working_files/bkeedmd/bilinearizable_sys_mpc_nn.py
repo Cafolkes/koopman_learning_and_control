@@ -123,7 +123,8 @@ class FiniteDimKoopSysDiscrete(FiniteDimKoopSys):
 
 n, m = 4, 2
 lambd, mu, c = .3, .2, -.5
-finite_dim_koop_sys = FiniteDimKoopSys(lambd, mu, c)
+system = FiniteDimKoopSys(lambd, mu, c)
+sys_name = 'analytic_koop_ctrl_sys'
 
 
 # In[3]:
@@ -272,43 +273,13 @@ n_koop = 6
 koop_bilinear_sys = BilinearLiftedDynamics(n_koop, m, F, G, C, phi_fun)
 
 
-# #### Verify that the Koopman Bilinear Form model and control-affine model are equivalent
-
-# To verify that the models are in fact equivalent we sample a random control sequence and simulate both models forward with the same control sequence. As can be seen below, the resulting trajectories are equivalent.
-
-# In[5]:
-
-
-from matplotlib.pyplot import subplots, tight_layout, show
-from koopman_core.controllers.openloop_controller import OpenLoopController
-
-ol_controller = OpenLoopController(finite_dim_koop_sys, np.random.normal(size=(2,200)).T, np.arange(0,200)*dt)
-z0 = phi_fun(x0.reshape((1,-1)))
-xs, us = finite_dim_koop_sys.simulate(x0, ol_controller, np.arange(0,201)*dt)
-zs_koop, us_koop = koop_bilinear_sys.simulate(z0, ol_controller, np.arange(0,201)*dt)
-xs_koop = np.dot(C, zs_koop.T)
-
-_, axs = subplots(3, 2, figsize=(15, 6))
-ylabels = ['$q_1$', '$q_2$', '$\\dot{q}_1$', '$\\dot{q}_2$', '$u_1$', '$u_2$']
-
-for ax, data_fb, data_koop, ylabel in zip(axs.flatten(), np.vstack((xs[:-1,:].T, us.T)), np.vstack((xs_koop[:,:-1], us_koop.T)), ylabels):
-    ax.plot(np.arange(0,200)*dt, data_fb, linewidth=3, label='True system')
-    ax.plot(np.arange(0,200)*dt, data_koop, linewidth=3, label='KCT')
-    ax.set_ylabel(ylabel, fontsize=16)
-    ax.grid()
-    ax.set_xlabel('$t$ (sec)', fontsize=16)
-    ax.legend()
-    
-tight_layout()
-show()
-
-
 # # Collect data for learning 
 
 # In[6]:
 
 
 import scipy as sc
+import os
 
 q_dc, r_dc = 5e2, 1                                                 # State and actuation penalty values, data collection
 Q_dc = q_dc * np.identity(n)                                        # State penalty matrix, data collection
@@ -319,12 +290,14 @@ K_dc_p = K_dc[:,:int(n/2)]                                          # Proportion
 K_dc_d = K_dc[:,int(n/2):]                                          # Derivative control gains, data collection
 
 # Data collection parameters:
+collect_data = True
 dt = 1.0e-2                                                         # Time step length
 traj_length_dc = 2.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_dc = 10                                                      # Number of trajectories to execute, data collection
-noise_var = 5.                                                      # Exploration noise to perturb controller, data collection
+n_traj_train = 100                                                      # Number of trajectories to execute, data collection
+n_traj_val = int(0.2*n_traj_train)
+noise_var = 2.                                                      # Exploration noise to perturb controller, data collection
 
 xmax = np.array([1., 1., 1., 1.])                                   # State constraints, trajectory generation
 xmin = -xmax
@@ -334,39 +307,29 @@ x0_max = xmax/2                                                     # Initial va
 sub_sample_rate = 1                                                 # Rate to subsample data for training
 model_fname = 'examples/'                                           # Path to save learned models
 n_cols = 10                                                         # Number of columns in training data plot
+directory = os.path.abspath("")                                     # Path to save learned models
 
 
 # In[7]:
 
 
-import matplotlib.pyplot as plt
-import random as rand
-from core.controllers import PDController
-from koopman_core.controllers import PerturbedController, OpenLoopController
-xs = np.empty((n_traj_dc, n_pred_dc + 1, n))
-us = np.empty((n_traj_dc, n_pred_dc, m))
+from koopman_core.util import run_experiment
+import dill
 
-plt.figure(figsize=(12, 12 * n_traj_dc / (n_cols ** 2)))
-for ii in range(n_traj_dc):
-    x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
-    set_pt_dc = np.zeros(n)
+if collect_data:
+    xs_train, us_train, t_train = run_experiment(system, n, n_traj_train, n_pred_dc, t_eval, x0_max, plot_experiment_data=True,
+                                      m=m, K_p=K_dc_p, K_d=K_dc_d, noise_var=noise_var)
+    xs_val, us_val, t_val = run_experiment(system, n, n_traj_val, n_pred_dc, t_eval, x0_max, plot_experiment_data=True,
+                                      m=m, K_p=K_dc_p, K_d=K_dc_d, noise_var=noise_var)
 
-    output = KoopPdOutput(finite_dim_koop_sys, set_pt_dc, n, m)
-    pd_controller = PDController(output, K_dc_p, K_dc_d)
-    perturbed_pd_controller = PerturbedController(finite_dim_koop_sys, pd_controller, noise_var)
-    #perturbed_pd_controller = OpenLoopController(finite_dim_koop_sys, np.zeros((t_eval.shape[0], m)), t_eval)
-    xs[ii, :, :], us[ii, :, :] = finite_dim_koop_sys.simulate(x0, perturbed_pd_controller, t_eval)
-
-    plt.subplot(int(np.ceil(n_traj_dc / n_cols)), n_cols, ii + 1)
-    plt.plot(t_eval, xs[ii, :, 0], 'b', label='$x_1$')
-    plt.plot(t_eval, xs[ii, :, 1], 'g', label='$x_2$')
-    plt.plot(t_eval, set_pt_dc[0]*np.ones_like(xs[ii,:,0]), '--b', label='$\\tau_1$')
-    plt.plot(t_eval, set_pt_dc[1]*np.ones_like(xs[ii,:,0]), '--g', label='$\\tau_2$')
-
-plt.suptitle(
-    'Training data \nx-axis: time (sec), y-axis: state value, $x_1$ - blue, $\tau_1$ - dotted blue, $x_2$ - green, $\\tau_2$ - dotted green',
-    y=0.94)
-plt.show()
+    data_list = [xs_train, us_train, t_train, n_traj_train, xs_val, us_val, t_val, n_traj_val]
+    outfile = open(directory + '/data/' + sys_name + '_data.pickle', 'wb')
+    dill.dump(data_list, outfile)
+    outfile.close()
+else:
+    infile = open(directory + '/data/' + sys_name + '_data.pickle', 'rb')
+    xs_train, us_train, t_train, n_traj_train, xs_val, us_val, t_val, n_traj_val = dill.load(infile)
+    infile.close()
 
 
 # # Learn Koopman-based models of the dynamics
@@ -398,12 +361,15 @@ C_bedmd[:,1:n+1] = np.eye(n)
 basis_bedmd = lambda x: bedmd_features.transform(x)
 optimizer_bedmd = linear_model.MultiTaskLasso(alpha=alpha_bedmd, fit_intercept=False, selection='random')
 cv_bedmd = linear_model.MultiTaskLassoCV(fit_intercept=False, n_jobs=-1, cv=3, selection='random')
-standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
+#standardizer_bedmd = preprocessing.StandardScaler(with_mean=False)
+standardizer_bedmd = None
 
-model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_bedmd, continuous_mdl=False, dt=dt)
-X_bedmd, y_bedmd = model_bedmd.process(xs, us, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
+model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj_train, optimizer_bedmd, cv=cv_bedmd, 
+                           standardizer=standardizer_bedmd, C=C_bedmd, continuous_mdl=False, dt=dt)
+X_bedmd, y_bedmd = model_bedmd.process(xs_train, us_train, np.tile(t_train,(n_traj_train,1)), downsample_rate=sub_sample_rate)
 model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True)
-sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis, continuous_mdl=False, dt=dt)
+sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, 
+                                   model_bedmd.basis, continuous_mdl=False, dt=dt)
 if tune_mdl_bedmd:
     print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
 
@@ -418,33 +384,68 @@ from koopman_core.learning import KoopDnn
 net_params = {}
 net_params['state_dim'] = n
 net_params['ctrl_dim'] = m
-net_params['encoder_hidden_dim'] = [20, 20]
-net_params['encoder_output_dim'] = 4
+net_params['encoder_hidden_width'] = 50
+net_params['encoder_hidden_depth'] = 1
+net_params['encoder_output_dim'] = 1
 net_params['optimizer'] = 'adam'
-net_params['lr'] = 0.001
-net_params['epochs'] = 30
-net_params['batch_size'] = 16
-net_params['lin_loss_penalty'] = 5e-1/net_params['encoder_output_dim']
-net_params['weight_decay'] = 1e-3
+net_params['lr'] = 1e-2
+net_params['epochs'] = 100
+net_params['batch_size'] = 128
+net_params['lin_loss_penalty'] = 0.5
+net_params['l2_reg'] = 0
 net_params['l1_reg'] = 0
-net_params['n_multistep'] = 10
 net_params['first_obs_const'] = True
-net_params['override_kinematics'] = True
+net_params['override_kinematics'] = False
 net_params['dt'] = dt
+
+
+# import dill, os
+# 
+# infile = open(os.path.abspath('') + '/data/bilinearizable_sys_best_params.pickle', 'rb')
+# best_config_lst, val_loss, test_loss, open_loop_mse, open_loop_std = dill.load(infile)
+# infile.close()
+# 
+# n_multistep_lst = [conf['n_multistep'] for conf in best_config_lst]
+# plt.figure()
+# plt.plot(n_multistep_lst, val_loss, label='Validation loss')
+# plt.plot(n_multistep_lst, test_loss, label='Test loss')
+# plt.plot(n_multistep_lst, open_loop_mse, label='Open loop prediction mse')
+# plt.legend()
+# plt.ylim([0, 0.2])
+# plt.xlabel('# of steps, multistep prediction')
+# plt.ylabel('Loss')
+# plt.show()
+# net_params = best_config_lst[-1]
+# print(net_params)
 
 # In[11]:
 
-n_tot = net_params['state_dim'] + net_params['encoder_output_dim'] + int(net_params['first_obs_const'])
-model_koop_dnn = KoopDnn(n_traj_dc, net_params)
-X_koop_dnn, y_koop_dnn = model_koop_dnn.process(xs, us, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
-model_koop_dnn.fit(X_koop_dnn, y_koop_dnn)
-sys_koop_dnn = BilinearLiftedDynamics(n_tot, m, model_koop_dnn.A, model_koop_dnn.B, model_koop_dnn.C, model_koop_dnn.basis_encode, continuous_mdl=False, dt=dt)
-#sys_koop_dnn = LinearLiftedDynamics(model_koop_dnn.A, None, model_koop_dnn.C, model_koop_dnn.basis_encode, continuous_mdl=False, dt=dt)
+
+from koopman_core.learning import KoopmanNetCtrl
+
+#standardizer_kdnn = preprocessing.StandardScaler(with_mean=False)
+standardizer_kdnn = None
+n_tot = n + net_params['encoder_output_dim'] + int(net_params['first_obs_const'])
+
+net = KoopmanNetCtrl(net_params, standardizer=standardizer_kdnn)
+model_koop_dnn = KoopDnn(net)
+model_koop_dnn.set_datasets(xs_train, t_train, u_train=us_train, x_val=xs_val, u_val=us_val, t_val=t_val)
+model_koop_dnn.model_pipeline(net_params, early_stop=False)
+model_koop_dnn.construct_koopman_model()
+sys_koop_dnn = BilinearLiftedDynamics(n_tot, m, model_koop_dnn.A, model_koop_dnn.B, model_koop_dnn.C, model_koop_dnn.basis_encode,
+                                    continuous_mdl=False, dt=dt, standardizer=standardizer_kdnn)
+
+
+# In[12]:
+
+
+print(sys_koop_dnn.A)
+print(sys_koop_dnn.B)
 
 
 # # Evaluate open-loop prediction performance
 
-# In[ ]:
+# In[13]:
 
 
 # Prediction performance evaluation parameters:
@@ -452,47 +453,27 @@ folder_plots = 'figures/'                                          # Path to sav
 n_traj_ol = 50                                                     # Number of trajectories to execute, open loop
 
 
-# In[ ]:
+# In[14]:
 
 
+from koopman_core.util import evaluate_ol_pred
 from tabulate import tabulate
+import random as rand
 
-xs_ol = np.empty((n_traj_ol, t_eval.shape[0], n))
-xs_bedmd_ol = np.empty((n_traj_ol, t_eval.shape[0]-1, n))
-xs_koop_dnn_ol = np.empty((n_traj_ol, t_eval.shape[0]-1, n))
-us_test = np.empty((n_traj_ol, t_eval.shape[0]-1, m))
+xs_ol, us_ol, t_ol = run_experiment(system, n, n_traj_ol, n_pred_dc, t_eval, x0_max, plot_experiment_data=True,
+                                      m=m, K_p=K_dc_p, K_d=K_dc_d, noise_var=noise_var)
 
-for ii in range(n_traj_ol):
-    x0 = np.asarray([rand.uniform(l, u) for l, u in zip(-x0_max, x0_max)])
-    set_pt_dc = np.zeros(n)
-    
-    output = KoopPdOutput(finite_dim_koop_sys, set_pt_dc, n, m)
-    pd_controller = PDController(output, K_dc_p, K_dc_d)
-    perturbed_pd_controller = PerturbedController(finite_dim_koop_sys, pd_controller, noise_var)
-    #perturbed_pd_controller = OpenLoopController(finite_dim_koop_sys, np.zeros((t_eval.shape[0], m)), t_eval)
-    xs_ol[ii, :, :], us_test[ii, :, :] = finite_dim_koop_sys.simulate(x0, perturbed_pd_controller, t_eval)
-    ol_controller_nom = OpenLoopController(sys_bedmd, us_test[ii,:,:], t_eval[:-1])
-
-    z_0_bedmd = sys_bedmd.basis(np.atleast_2d(x0)).squeeze()
-    zs_bedmd_tmp, _ = sys_bedmd.simulate(z_0_bedmd, ol_controller_nom, t_eval[:-1])
-    xs_bedmd_ol[ii,:,:] = np.dot(model_bedmd.C, zs_bedmd_tmp.T).T
-    
-    z_0_koop_dnn = sys_koop_dnn.basis(np.atleast_2d(x0)).squeeze()
-    zs_koop_dnn_tmp, _ = sys_koop_dnn.simulate(z_0_koop_dnn, ol_controller_nom, t_eval[:-1])
-    xs_koop_dnn_ol[ii,:,:] = np.dot(model_koop_dnn.C, zs_koop_dnn_tmp.T).T
-
-data = [xs_bedmd_ol, xs_koop_dnn_ol]
-mdl_names = ['bEDMD', 'Koop DNN']
+mdl_lst = [sys_koop_dnn, sys_bedmd]
+mdl_names = ['Koop DNN', 'bEDMD']
 error, mse, std = [], [], []
 
-for ii, d in enumerate(data):
-    err_tmp = xs_ol[:,:-1,:]-d
+for sys in mdl_lst:
+    err_tmp, mse_tmp, std_tmp = evaluate_ol_pred(sys, xs_ol, t_eval, us=us_ol)
     error.append(err_tmp)
-    mse.append(np.mean(np.square(error[ii])))
-    std.append(np.std(error[ii]))
+    mse.append(mse_tmp)
+    std.append(std_tmp)
     
 print('\nOpen loop performance statistics:')
-
 table_data = []
 for name, mse_mdl, std_mdl in zip(mdl_names, mse, std):
     table_data.append([name, "{:.5f}".format(mse_mdl), "{:.5f}".format(std_mdl)])
@@ -501,7 +482,7 @@ print(tabulate(table_data,
                headers=['Mean squared error', 'Standard deviation']))
 
 
-# In[ ]:
+# In[15]:
 
 
 import matplotlib.pyplot as plt
@@ -536,6 +517,40 @@ matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
 plt.savefig(folder_plots + 'koop_sys_prediction.pdf', format='pdf', dpi=2400, bbox_extra_artists=(stitle,), bbox_inches="tight")
 plt.show()
+
+
+# In[16]:
+
+
+A_red = model_koop_dnn.A - np.eye(model_koop_dnn.A.shape[0])
+plt.imshow(A_red)
+#plt.imshow(model_koop_dnn.B[1])
+plt.colorbar()
+print(A_red[3:5,:])
+print(mu, lambd)
+print(sys_koop_dnn.B[1][3:5,:])
+
+
+# In[17]:
+
+
+traj = 3
+plt.subplot(1,2,1)
+plt.plot(t_eval, xs_ol[traj,:,0], label='data')
+plt.plot(t_eval[:-1], xs_koop_dnn_ol[traj,:,0], label='koop')
+plt.subplot(1,2,2)
+plt.plot(t_eval, xs_ol[traj,:,1], label='data')
+plt.plot(t_eval[:-1], xs_koop_dnn_ol[traj,:,1], label='koop')
+
+
+plt.legend()
+plt.show()
+
+
+# In[ ]:
+
+
+plt.plot(us[0,:,:])
 
 
 # # Design model predictive controllers

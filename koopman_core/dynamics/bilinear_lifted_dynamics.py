@@ -12,7 +12,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     Override drift, act.
     """
 
-    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None):
+    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None, standardizer=None):
         """
         Initialize bilinear lifted dynamics class
         :param n: (int) State dimension
@@ -24,7 +24,6 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         :param continuous_mdl: (boolean) System matrices provided are for continuous dynamics
         :param dt: (float) Sampling interval for discrete-time dynamics
         """
-
 
         assert m == len(B)
         assert n == A.shape[0]
@@ -38,6 +37,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
 
         self.continuous_mdl = continuous_mdl
         self.dt = dt
+        self.standardizer = standardizer
 
     def drift(self, x, t):
         return dot(self.A, x)
