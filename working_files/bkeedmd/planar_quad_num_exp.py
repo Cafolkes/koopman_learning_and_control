@@ -286,8 +286,8 @@ for n_lift in n_lift_exp:
             sys_kdnn = BilinearLiftedDynamics(n_tot, m, model_kdnn.A, model_kdnn.B, model_kdnn.C,
                                                   model_kdnn.basis_encode, continuous_mdl=False, dt=dt)
 
-            train_loss_tmp = model_kdnn.test_loss(xs_tmp, t_eval_test, u_test=us_tmp - hover_thrust)
-            test_loss_tmp = model_kdnn.test_loss(xs_test_tmp, t_eval_test[ii, :], u_test=us_test_tmp - hover_thrust)
+            train_loss_tmp = model_kdnn.test_loss(xs_tmp, t_eval_test, u_test=us_tmp - hover_thrust).cpu()
+            test_loss_tmp = model_kdnn.test_loss(xs_test_tmp, t_eval_test[ii, :], u_test=us_test_tmp - hover_thrust).cpu()
             _, mse_tmp, std_tmp = evaluate_ol_pred(sys_kdnn, xs_test_tmp, t_eval_test, us=us_test_tmp - hover_thrust)
 
             result_dict = {'n_lift': n_lift,
