@@ -10,7 +10,7 @@ import dill
 from core.dynamics import RoboticDynamics
 from koopman_core.util import run_experiment, evaluate_ol_pred
 from koopman_core.dynamics import BilinearLiftedDynamics
-from koopman_core.learning import KoopDnn
+from koopman_core.learning import KoopDnn, KoopmanNetCtrl
 from ray import tune
 from ray.tune.suggest.bohb import TuneBOHB
 from ray.tune.schedulers import HyperBandForBOHB, ASHAScheduler
@@ -96,7 +96,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                      # Time budget for tuning process for each n_multistep value
+time_budget_s = 120#3*60*60                                      # Time budget for tuning process for each n_multistep value
 n_multistep_lst = [1, 5, 10, 30]
 if torch.cuda.is_available():
     resources_cpu = 2
@@ -122,7 +122,8 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-model_kdnn = KoopDnn(net_params)
+net = KoopmanNetCtrl(net_params)
+model_kdnn = KoopDnn(net)
 model_kdnn.set_datasets(xs_train, us_train, t_eval_train)
 
 # Set up hyperparameter tuning:

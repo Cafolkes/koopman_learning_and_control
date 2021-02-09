@@ -7,11 +7,6 @@ class KoopmanNetCtrl(KoopmanNet):
     def __init__(self, net_params, standardizer=None):
         super(KoopmanNetCtrl, self).__init__(net_params, standardizer=standardizer)
 
-        # TODO: Debug todos:
-        # TODO: - Verify z_u calculation
-        # TODO: - Verify z_diff_pred calculations and dynamics matrix construction
-        # TODO: - Check scaling of loss func in controlled setting
-
     def construct_net(self):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
@@ -27,9 +22,6 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
             self.koopman_fc_act = nn.Linear(m*n_tot, n_tot-first_obs_const, bias=False)
-
-        self.optimization_parameters.append(self.koopman_fc_drift.weight)
-        self.optimization_parameters.append(self.koopman_fc_act.weight)
 
     def forward(self, data):
         # data = [x, u, x_prime]
@@ -47,7 +39,7 @@ class KoopmanNetCtrl(KoopmanNet):
         z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const + n:]  # TODO: Assumes z = [x phi]^T, generalize?
 
         z_u = torch.cat(
-            [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u_i), 0, 1) for u_i in torch.transpose(u, 0, 1)], 1)  #TODO: verify
+            [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u_i), 0, 1) for u_i in torch.transpose(u, 0, 1)], 1)
 
         drift_matrix, act_matrix = self.construct_drift_act_matrix_()
         z_prime_diff_pred = torch.matmul(z, torch.transpose(drift_matrix, 0, 1)) \
@@ -69,16 +61,20 @@ class KoopmanNetCtrl(KoopmanNet):
         dt = self.net_params['dt']
 
         if override_kinematics:
-            const_obs_dyn = torch.zeros((first_obs_const, n_tot), device=self.koopman_fc_drift.weight.device)
-            kinematics_dyn = torch.zeros((int(n/2), n_tot), device=self.koopman_fc_drift.weight.device)
-            kinematics_dyn[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
-            drift_matrix = torch.cat((const_obs_dyn,
-                                      kinematics_dyn,
+            const_obs_dyn_drift = torch.zeros((first_obs_const, n_tot), device=self.koopman_fc_drift.weight.device)
+            kinematics_dyn_drift = torch.zeros((int(n/2), n_tot), device=self.koopman_fc_drift.weight.device)
+            kinematics_dyn_drift[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
+            drift_matrix = torch.cat((const_obs_dyn_drift,
+                                      kinematics_dyn_drift,
                                       self.koopman_fc_drift.weight), 0)
-            act_matrix = None #TODO: Implement for override case
+
+            const_obs_dyn_act = torch.zeros((first_obs_const, m * n_tot), device=self.koopman_fc_drift.weight.device)
+            kinematics_dyn_act = torch.zeros((int(n / 2), m * n_tot), device=self.koopman_fc_drift.weight.device)
+            act_matrix = torch.cat((const_obs_dyn_act, kinematics_dyn_act, self.koopman_fc_act.weight), 0)
         else:
             const_obs_dyn_drift = torch.zeros((first_obs_const, n_tot), device=self.koopman_fc_drift.weight.device)
             drift_matrix = torch.cat((const_obs_dyn_drift, self.koopman_fc_drift.weight), 0)
+
             const_obs_dyn_act = torch.zeros((first_obs_const, m*n_tot), device=self.koopman_fc_drift.weight.device)
             act_matrix = torch.cat((const_obs_dyn_act, self.koopman_fc_act.weight), 0)
 
@@ -120,14 +116,14 @@ class KoopmanNetCtrl(KoopmanNet):
         B_vec = act_matrix.data.numpy()
         self.B = [B_vec[:, n_tot * ii:n_tot * (ii + 1)] * dt for ii in range(m)]
 
-    def process(self, data_x, data_u, t, downsample_rate=1, train_data=False):
+    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
         n_traj = data_x.shape[0]
 
-        data_scaled_x, data_scaled_u = self.preprocess_data(data_x, train_data, u=data_u)
+        data_scaled_x = self.preprocess_data(data_x, train_data)
         x = data_scaled_x[:, :-1, :]
-        u = data_scaled_u
+        u = data_u
         x_prime = data_scaled_x[:,1:,:]
 
         order = 'F'
@@ -140,23 +136,3 @@ class KoopmanNetCtrl(KoopmanNet):
         y = x_prime_flat.T - x_flat.T
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
-
-    def preprocess_data(self, x, train_data, u=None):
-        #TODO: Handle scaling of state and actuation data...
-        #TODO: -How to handle scaling of u in final model?
-        n = self.net_params['state_dim']
-        n_traj = x.shape[0]
-        traj_length = x.shape[1]
-        #data_flat = data_x.T.reshape((n, n_traj*traj_length), order='F')
-
-        if train_data and self.standardizer is not None:
-            #self.standardizer.fit(data_flat.T)
-            pass
-
-        if self.standardizer is None:
-            x_scaled, u_scaled = x, u
-        else:
-            #data_scaled = np.array([self.standardizer.transform(d) for d in data])
-            pass
-
-        return x_scaled, u_scaled

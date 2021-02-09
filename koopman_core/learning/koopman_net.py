@@ -10,7 +10,6 @@ class KoopmanNet(nn.Module):
         self.standardizer = standardizer
 
         self.encoder = None
-        self.optimization_parameters = []
 
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
@@ -25,10 +24,7 @@ class KoopmanNet(nn.Module):
     def send_to(self, device):
         pass
 
-    def process(self, data, t, downsample_rate=1, train_data=False):
-        pass
-
-    def preprocess_data(self, x, train_data, u=None):
+    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
         pass
 
     def construct_dyn_mat(self):
@@ -40,15 +36,10 @@ class KoopmanNet(nn.Module):
         n = self.net_params['state_dim']
         n_z = self.net_params['encoder_output_dim']
         dt = self.net_params['dt']
-        override_kinematics = self.net_params['override_kinematics']
+        n_override_kinematics = int(n/2)*int(self.net_params['override_kinematics'])
 
-        if override_kinematics:
-            x_prime_diff_pred = outputs[:, int(n/2):n]
-            x_prime_diff = labels[:, int(n/2):]
-
-        else:
-            x_prime_diff_pred = outputs[:, :n]
-            x_prime_diff = labels
+        x_prime_diff_pred = outputs[:, n_override_kinematics:n]
+        x_prime_diff = labels[:, n_override_kinematics:]
 
         z_prime_diff_pred = outputs[:, n:n + n_z]
         z_prime_diff = outputs[:, n + n_z:]
@@ -60,7 +51,7 @@ class KoopmanNet(nn.Module):
         lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)
 
         if validation:
-            total_loss = pred_loss + 0.1*lin_loss  #TODO: Think about best validation loss (multistep ?)
+            total_loss = pred_loss + 0.1*lin_loss  #TODO: Think about best validation loss
         else:
             total_loss = pred_loss + alpha*lin_loss
 
@@ -78,20 +69,13 @@ class KoopmanNet(nn.Module):
 
         if hidden_depth > 0:
             self.encoder_fc_in = nn.Linear(input_dim, hidden_width)
-            self.optimization_parameters.append(self.encoder_fc_in.weight)
-            self.optimization_parameters.append(self.encoder_fc_in.bias)
-            self.encoder_fc_hid = []
+            self.encoder_fc_hid = nn.ModuleList()
             for ii in range(1, hidden_depth):
                 self.encoder_fc_hid.append(nn.Linear(hidden_width, hidden_width))
-                self.optimization_parameters.append(self.encoder_fc_hid[-1].weight)
-                self.optimization_parameters.append(self.encoder_fc_hid[-1].bias)
             self.encoder_fc_out = nn.Linear(hidden_width, output_dim)
-            self.optimization_parameters.append(self.encoder_fc_out.weight)
-            self.optimization_parameters.append(self.encoder_fc_out.bias)
+
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
-            self.optimization_parameters.append(self.encoder_fc_out.weight)
-            self.optimization_parameters.append(self.encoder_fc_out.bias)
 
     def encode_forward_(self, x):
         if self.net_params['encoder_hidden_depth'] > 0:
@@ -109,3 +93,19 @@ class KoopmanNet(nn.Module):
         z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t).detach().numpy()), axis=1)
 
         return z
+
+    def preprocess_data(self, data, train_data):
+        n = self.net_params['state_dim']
+        n_traj = data.shape[0]
+        traj_length = data.shape[1]
+        data_flat = data.T.reshape((n, n_traj*traj_length), order='F')
+
+        if train_data and self.standardizer is not None:
+            self.standardizer.fit(data_flat.T)
+
+        if self.standardizer is None:
+            data_scaled = data
+        else:
+            data_scaled = np.array([self.standardizer.transform(d) for d in data])
+
+        return data_scaled

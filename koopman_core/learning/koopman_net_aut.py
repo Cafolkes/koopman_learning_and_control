@@ -20,8 +20,6 @@ class KoopmanNetAut(KoopmanNet):
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
 
-        self.optimization_parameters.append(self.koopman_fc_drift.weight)
-
     def forward(self, data):
         # data = [x, x_prime]
         # output = [x_pred, x_prime_pred, lin_error]
@@ -82,11 +80,11 @@ class KoopmanNetAut(KoopmanNet):
         self.koopman_fc_drift.to(device)
         self.C = self.C.to(device)
 
-    def process(self, data, t, downsample_rate=1, train_data=False):
+    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
         n = self.net_params['state_dim']
-        n_traj = data.shape[0]
+        n_traj = data_x.shape[0]
 
-        data_scaled = self.preprocess_data(data, train_data)
+        data_scaled = self.preprocess_data(data_x, train_data)
         x = data_scaled[:, :-1, :]
         x_prime = data_scaled[:, 1:, :]
 
@@ -99,22 +97,6 @@ class KoopmanNetAut(KoopmanNet):
         y = x_prime_flat.T - x_flat.T
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
-
-    def preprocess_data(self, data, train_data):
-        n = self.net_params['state_dim']
-        n_traj = data.shape[0]
-        traj_length = data.shape[1]
-        data_flat = data.T.reshape((n, n_traj*traj_length), order='F')
-
-        if train_data and self.standardizer is not None:
-            self.standardizer.fit(data_flat.T)
-
-        if self.standardizer is None:
-            data_scaled = data
-        else:
-            data_scaled = np.array([self.standardizer.transform(d) for d in data])
-
-        return data_scaled
 
     def construct_dyn_mat(self):
         n = self.net_params['state_dim']

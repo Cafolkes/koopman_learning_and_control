@@ -46,10 +46,10 @@ def run_experiment(system, n, n_traj, n_pred, t_eval, x0_max, plot_experiment_da
 
         if plot_experiment_data:
             plt.subplot(int(np.ceil(n_traj / n_cols_plot)), n_cols_plot, ii + 1)
-            plt.plot(t_eval, xs[ii, :, 0], 'b', label='$x_1$')
-            plt.plot(t_eval, xs[ii, :, 1], 'g', label='$x_2$')
-            plt.plot(t_eval, set_pt_dc[0] * np.ones_like(xs[ii, :, 0]), '--b', label='$\\tau_1$')
-            plt.plot(t_eval, set_pt_dc[1] * np.ones_like(xs[ii, :, 0]), '--g', label='$\\tau_2$')
+            clrs = ['b', 'g', 'r']
+            for jj in range(min(int(n/2), 3)):
+                plt.plot(t_eval, xs[ii, :, jj], clrs[jj])
+                plt.plot(t_eval, set_pt_dc[jj] * np.ones_like(xs[ii, :, 0]), '--' + clrs[jj])
 
     if plot_experiment_data:
         plt.suptitle(

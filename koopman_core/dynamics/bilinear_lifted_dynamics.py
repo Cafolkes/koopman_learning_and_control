@@ -38,6 +38,8 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         self.continuous_mdl = continuous_mdl
         self.dt = dt
         self.standardizer = standardizer
+        if standardizer is not None:
+            assert standardizer.with_mean is False, 'Mean offset of data not supported'
 
     def drift(self, x, t):
         return dot(self.A, x)

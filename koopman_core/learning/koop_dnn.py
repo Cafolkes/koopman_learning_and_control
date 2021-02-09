@@ -43,12 +43,8 @@ class KoopDnn():
         self.net.construct_net()
         self.set_optimizer_()
 
-        if self.u_train is None:
-            X_train, y_train = self.net.process(self.x_train, self.t_train, train_data=True)
-            X_val, y_val = self.net.process(self.x_val, self.t_val)
-        else:
-            X_train, y_train = self.net.process(self.x_train, self.u_train, self.t_train, train_data=True)
-            X_val, y_val = self.net.process(self.x_val, self.u_val, self.t_val)
+        X_train, y_train = self.net.process(self.x_train, self.t_train, data_u=self.u_train, train_data=True)
+        X_val, y_val = self.net.process(self.x_val, self.t_val, data_u=self.u_val)
 
         if plot_data:
             self.plot_train_data_(X_train, y_train)
@@ -60,7 +56,7 @@ class KoopDnn():
 
         self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run, early_stop=early_stop)
 
-    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False, early_stop_crit=5e-4, early_stop_max_count=5):
+    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False, early_stop_crit=1e-3, early_stop_max_count=5):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
@@ -106,7 +102,8 @@ class KoopDnn():
 
             # Early stop if no improvement:
             if early_stop:
-                if (val_loss/val_steps)/val_loss_prev >= 1 - early_stop_crit:
+                improvement = (val_loss/val_steps)/val_loss_prev
+                if improvement >= 1 - early_stop_crit and improvement <= 1+early_stop_crit:
                     no_improv_counter += 1
                 else:
                     no_improv_counter = 0
@@ -132,10 +129,10 @@ class KoopDnn():
             device = 'cuda:0'
         self.net.send_to(device)
 
-        if self.u_train is None:
+        if u_test is None:
             X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)))
         else:
-            X_test, y_test = self.net.process(x_test, u_test, np.tile(t_test, (x_test.shape[0], 1)))
+            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)), data_u=u_test)
 
         X_t, y_t = torch.from_numpy(X_test).float(), torch.from_numpy(y_test).float()
         dataset_test = torch.utils.data.TensorDataset(X_t, y_t)
@@ -180,11 +177,11 @@ class KoopDnn():
         if self.net.net_params['optimizer'] == 'sgd':
             lr = self.net.net_params['lr']
             momentum = self.net.net_params['momentum']
-            self.optimizer = optim.SGD(self.net.optimization_parameters, lr=lr, momentum=momentum)
+            self.optimizer = optim.SGD(self.net.parameters(), lr=lr, momentum=momentum)
         elif self.net.net_params['optimizer'] == 'adam':
             lr = self.net.net_params['lr']
             weight_decay = self.net.net_params['l2_reg']
-            self.optimizer = optim.Adam(self.net.optimization_parameters, lr=lr, weight_decay=weight_decay)
+            self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
 
     def plot_train_data_(self, X, y):
         import matplotlib.pyplot as plt
