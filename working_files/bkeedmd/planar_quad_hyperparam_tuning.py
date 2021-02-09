@@ -237,7 +237,7 @@ best_model = KoopDnn(best_net)
 checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
 model_state, optimizer_state = torch.load(checkpoint_path)
 best_model.net.load_state_dict(model_state)
-test_loss = best_model.test_loss(xs_test, t_eval_test, u_test=us_test)
+test_loss = best_model.test_loss(xs_test, t_eval_test, u_test=us_test-hover_thrust)
 
 # Calculate open loop mse and std:
 n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_params['first_obs_const'])
