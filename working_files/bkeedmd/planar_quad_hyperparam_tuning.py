@@ -244,7 +244,7 @@ n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_pa
 best_model.construct_koopman_model()
 sys_kdnn = BilinearLiftedDynamics(n_tot, m, best_model.A, best_model.B, best_model.C,
                                       best_model.basis_encode, continuous_mdl=False, dt=dt)
-_, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test)
+_, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
 
 print('Tuning procedure finalized.')
 print('Config: ', best_config)
