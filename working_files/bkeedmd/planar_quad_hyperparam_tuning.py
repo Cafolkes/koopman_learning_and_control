@@ -170,7 +170,7 @@ net_params['lin_loss_penalty'] = tune.uniform(0, 1)
 
 # Hyperparameter tuning parameters:
 num_samples = -1
-time_budget_s = 3*60*60                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 10*60*60                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
