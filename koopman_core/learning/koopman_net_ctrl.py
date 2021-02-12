@@ -65,7 +65,7 @@ class KoopmanNetCtrl(KoopmanNet):
         if override_kinematics:
             const_obs_dyn_drift = torch.zeros((first_obs_const, n_tot), device=self.koopman_fc_drift.weight.device)
             kinematics_dyn_drift = torch.zeros((int(n/2), n_tot), device=self.koopman_fc_drift.weight.device)
-            kinematics_dyn_drift[:, first_obs_const+int(n/2):first_obs_const+n] = torch.eye(int(n/2))*dt
+            kinematics_dyn_drift[:, first_obs_const+int(n/2):first_obs_const+n] = dt*torch.eye(int(n/2), device=self.koopman_fc_drift.weight.device)
             drift_matrix = torch.cat((const_obs_dyn_drift,
                                       kinematics_dyn_drift,
                                       self.koopman_fc_drift.weight), 0)
