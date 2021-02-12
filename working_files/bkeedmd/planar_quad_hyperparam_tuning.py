@@ -18,6 +18,7 @@ from koopman_core.learning.utils import differentiate_vec
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 import random as rand
+from sklearn import preprocessing
 
 class QuadrotorPdOutput(ConfigurationDynamics):
     def __init__(self, dynamics, xd, t_d, n, m):
@@ -201,7 +202,10 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-net = KoopmanNetCtrl(net_params)
+standardizer_x_kdnn = preprocessing.StandardScaler(with_mean=False)
+standardizer_u_kdnn = preprocessing.StandardScaler(with_mean=False)
+
+net = KoopmanNetCtrl(net_params, standardizer_x=standardizer_x_kdnn, standardizer_u=standardizer_u_kdnn)
 model_kdnn = KoopDnn(net)
 model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train-hover_thrust, x_val=xs_val, u_val=us_val-hover_thrust, t_val=t_eval_val)
 
@@ -254,7 +258,9 @@ for best_trial, best_config in zip(best_trial_lst, best_config_lst):
     n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_params['first_obs_const'])
     best_model.construct_koopman_model()
     sys_kdnn = BilinearLiftedDynamics(n_tot, m, best_model.A, best_model.B, best_model.C,
-                                          best_model.basis_encode, continuous_mdl=False, dt=dt)
+                                          best_model.basis_encode,
+                                          continuous_mdl=False, dt=dt, standardizer_x=standardizer_x_kdnn,
+                                          standardizer_u=standardizer_u_kdnn)
     _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
     open_loop_mse.append(mse)
     open_loop_std.append(std)
