@@ -16,7 +16,7 @@ class KoopPdOutput(ConfigurationDynamics):
         q = x[:int(self.n/2)]
         q_d = self.xd[:int(self.n/2)]
 
-        return  q - q_d
+        return q - q_d
 
     def derivative(self, x, t):
         q_dot = x[int(self.n/2):]
@@ -66,20 +66,24 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
     n_traj = xs.shape[0]
     n = xs.shape[2]
 
+    if us is not None:
+        us_scaled = us.copy()
     xs_pred = np.empty((n_traj, t_eval.shape[0]-1, n))
     for ii in range(n_traj):
         if us is None:
             ctrl = ConstantController(sys, 0.)
         else:
-            ctrl = OpenLoopController(sys, us[ii, :, :], t_eval[:-1])
+            if sys.standardizer_u is not None:
+                us_scaled[ii, :, :] = sys.standardizer_u.transform(us[ii, :, :])
+            ctrl = OpenLoopController(sys, us_scaled[ii, :, :], t_eval[:-1])
 
         x0 = xs[ii, 0, :]
         z0 = sys.basis(np.atleast_2d(x0)).squeeze()
         zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[:-1])
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T
 
-        if sys.standardizer is not None:
-            xs_pred[ii, :, :] = sys.standardizer.inverse_transform(xs_pred[ii, :, :])
+        if sys.standardizer_x is not None:
+            xs_pred[ii, :, :] = sys.standardizer_x.inverse_transform(xs_pred[ii, :, :])
 
     error = xs[:, :-1, :] - xs_pred
     mse = np.mean(np.square(error))

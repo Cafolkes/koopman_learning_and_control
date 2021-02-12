@@ -131,28 +131,9 @@ for n_multistep in n_multistep_lst:
         resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
         verbose=1
     )
-    # algo = TuneBOHB(metric='loss', mode='min')
-    # bohb = HyperBandForBOHB(
-    #    metric='loss',
-    #    mode='min',
-    #    max_t=net_params['epochs'],
-    #    time_attr='training_iteration'
-    # )
-    # result = tune.run(
-    #    'trainable_pipeline',
-    #    config=net_params,
-    #    checkpoint_at_end=True,
-    #    num_samples=num_samples,
-    #    time_budget_s=time_budget_s,
-    #    scheduler=bohb,
-    #    search_alg=algo,
-    #    resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
-    #    verbose=3
-    # )
 
     best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
     best_config_lst.append(result.get_best_config("loss", "min"))
-    print(best_config_lst[-1])
 
 # Analyze the results:
 val_loss = []

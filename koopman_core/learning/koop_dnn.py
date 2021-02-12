@@ -2,7 +2,9 @@ import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.data import random_split
+from torch.nn.utils import prune
 from ray import tune
+from koopman_core.learning.utils import ThresholdPruning
 import os
 
 class KoopDnn():
@@ -70,9 +72,16 @@ class KoopDnn():
         for epoch in range(self.net.net_params['epochs']):
             running_loss = 0.0
             epoch_steps = 0
+
+
             for data in trainloader:
                 inputs, labels = data
                 inputs, labels = inputs.to(device), labels.to(device)
+
+                if epoch > int(self.net.net_params['epochs'] * 0.8):
+                    prune.global_unstructured(
+                        self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-5
+                    )
 
                 self.optimizer.zero_grad()
                 outputs = self.net(inputs)
@@ -166,10 +175,10 @@ class KoopDnn():
             pass
 
     def basis_encode(self, x):
-        if self.net.standardizer is None:
+        if self.net.standardizer_x is None:
             x_scaled = np.atleast_2d(x)
         else:
-            x_scaled = self.net.standardizer.transform(x)
+            x_scaled = self.net.standardizer_x.transform(x)
 
         return self.net.encode(x_scaled)
 

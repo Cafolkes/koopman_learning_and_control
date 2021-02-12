@@ -12,7 +12,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
     Override drift, act.
     """
 
-    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None, standardizer=None):
+    def __init__(self, n, m, A, B, C, basis, continuous_mdl=True, dt=None, standardizer_x=None, standardizer_u=None):
         """
         Initialize bilinear lifted dynamics class
         :param n: (int) State dimension
@@ -37,9 +37,12 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
 
         self.continuous_mdl = continuous_mdl
         self.dt = dt
-        self.standardizer = standardizer
-        if standardizer is not None:
-            assert standardizer.with_mean is False, 'Mean offset of data not supported'
+        self.standardizer_x = standardizer_x
+        if standardizer_x is not None:
+            assert standardizer_x.with_mean is False, 'Mean offset of data not supported'
+        self.standardizer_u = standardizer_u
+        if standardizer_u is not None:
+            assert standardizer_u.with_mean is False, 'Mean offset of data not supported'
 
     def drift(self, x, t):
         return dot(self.A, x)

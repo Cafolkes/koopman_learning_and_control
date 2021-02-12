@@ -4,8 +4,8 @@ from koopman_core.learning import KoopmanNet
 import numpy as np
 
 class KoopmanNetAut(KoopmanNet):
-    def __init__(self, net_params, standardizer=None):
-        super(KoopmanNetAut, self).__init__(net_params, standardizer=standardizer)
+    def __init__(self, net_params, standardizer_x=None):
+        super(KoopmanNetAut, self).__init__(net_params, standardizer_x=standardizer_x)
 
     def construct_net(self):
         n = self.net_params['state_dim']
@@ -19,6 +19,8 @@ class KoopmanNetAut(KoopmanNet):
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-(first_obs_const + int(n/2)), bias=False)
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
+
+        self.parameters_to_prune = [(self.koopman_fc_drift, "weight")]
 
     def forward(self, data):
         # data = [x, x_prime]
@@ -84,7 +86,7 @@ class KoopmanNetAut(KoopmanNet):
         n = self.net_params['state_dim']
         n_traj = data_x.shape[0]
 
-        data_scaled = self.preprocess_data(data_x, train_data)
+        data_scaled = self.preprocess_data(data_x, self.standardizer_x, train_data)
         x = data_scaled[:, :-1, :]
         x_prime = data_scaled[:, 1:, :]
 
@@ -107,7 +109,15 @@ class KoopmanNetAut(KoopmanNet):
 
         self.A = self.construct_drift_matrix_().data.numpy()
         if override_kinematics:
-            self.A[first_obs_const+int(n/2):,:] *= dt
+            self.A[first_obs_const+int(n/2):, :] *= dt
+            if self.standardizer_x is not None:
+                x_dot_scaling = np.divide(self.standardizer_x.scale_[int(n/2):], self.standardizer_x.scale_[:int(n/2)]).reshape(-1,1)
+                self.A[first_obs_const: first_obs_const+int(n/2), :] = \
+                    np.multiply(self.A[first_obs_const: first_obs_const+int(n/2), :], x_dot_scaling)
         else:
             self.A[first_obs_const:, :] *= dt
+
         self.A += np.eye(n_tot)
+
+    def get_l1_norm_(self):
+        return torch.norm(self.koopman_fc_drift.weight.view(-1), p=1)

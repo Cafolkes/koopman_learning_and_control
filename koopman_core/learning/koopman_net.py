@@ -4,10 +4,11 @@ import torch.nn.functional as F
 import numpy as np
 
 class KoopmanNet(nn.Module):
-    def __init__(self, net_params, standardizer=None):
+    def __init__(self, net_params, standardizer_x=None, standardizer_u=None):
         super(KoopmanNet, self).__init__()
         self.net_params = net_params
-        self.standardizer = standardizer
+        self.standardizer_x = standardizer_x
+        self.standardizer_u = standardizer_u
 
         self.encoder = None
 
@@ -48,16 +49,17 @@ class KoopmanNet(nn.Module):
         criterion = nn.MSELoss()
 
         pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
-        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)
+        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
 
         if validation:
             total_loss = pred_loss + 0.1*lin_loss  #TODO: Think about best validation loss
         else:
-            total_loss = pred_loss + alpha*lin_loss
-
+            l1_loss = 0.
             if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
                 l1_reg = self.net_params['l1_reg']
-                total_loss += l1_reg * torch.norm(self.koopman_fc_drift.weight.flatten(), p=1)
+                l1_loss = l1_reg*self.get_l1_norm_()
+
+            total_loss = pred_loss + alpha*lin_loss + l1_loss
 
         return total_loss
 
@@ -66,6 +68,7 @@ class KoopmanNet(nn.Module):
         hidden_width = self.net_params['encoder_hidden_width']
         hidden_depth = self.net_params['encoder_hidden_depth']
         output_dim = self.net_params['encoder_output_dim']
+        activation_type = self.net_params['activation_type']
 
         if hidden_depth > 0:
             self.encoder_fc_in = nn.Linear(input_dim, hidden_width)
@@ -77,12 +80,28 @@ class KoopmanNet(nn.Module):
         else:
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
+        #self.encoder_output_norm = nn.BatchNorm1d(output_dim)
+        self.encoder_output_norm = nn.LayerNorm(output_dim)
+
+        if activation_type == 'relu':
+            self.activation_fn = F.relu
+        elif activation_type == 'tanh':
+            self.activation_fn = torch.tanh
+        else:
+            exit("Error: invalid activation function specified")
+
     def encode_forward_(self, x):
+        # TODO: Test tanh activation..
         if self.net_params['encoder_hidden_depth'] > 0:
-            x = F.relu(self.encoder_fc_in(x))
+            #x = F.relu(self.encoder_fc_in(x))
+            #x = torch.tanh(self.encoder_fc_in(x))
+            x = self.activation_fn(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
-                x = F.relu(layer(x))
+                #x = F.relu(layer(x))
+                #x = torch.tanh(layer(x))
+                x = self.activation_fn(layer(x))
         x = self.encoder_fc_out(x)
+        x = self.encoder_output_norm(x)
 
         return x
 
@@ -94,18 +113,16 @@ class KoopmanNet(nn.Module):
 
         return z
 
-    def preprocess_data(self, data, train_data):
-        n = self.net_params['state_dim']
-        n_traj = data.shape[0]
-        traj_length = data.shape[1]
+    def preprocess_data(self, data, standardizer, train_data):
+        n_traj, traj_length, n = data.shape
         data_flat = data.T.reshape((n, n_traj*traj_length), order='F')
 
-        if train_data and self.standardizer is not None:
-            self.standardizer.fit(data_flat.T)
+        if train_data and standardizer is not None:
+            standardizer.fit(data_flat.T)
 
-        if self.standardizer is None:
+        if standardizer is None:
             data_scaled = data
         else:
-            data_scaled = np.array([self.standardizer.transform(d) for d in data])
+            data_scaled = np.array([standardizer.transform(d) for d in data])
 
         return data_scaled
