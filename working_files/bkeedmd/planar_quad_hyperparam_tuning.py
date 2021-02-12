@@ -155,8 +155,9 @@ net_params['dt'] = dt
 net_params['data_dir'] = directory + '/data'
 
 # DNN architecture parameters:
-net_params['epochs'] = 200
+net_params['epochs'] = 250
 net_params['optimizer'] = 'adam'
+net_params['lin_loss_penalty'] = 1.
 
 # DNN tunable parameters:
 net_params['encoder_hidden_width'] = tune.choice([20, 50, 100, 200])
@@ -166,11 +167,13 @@ net_params['lr'] = tune.loguniform(1e-5, 1e-2)
 net_params['l2_reg'] = tune.loguniform(1e-6, 1e-1)
 net_params['l1_reg'] = tune.loguniform(1e-6, 1e-1)
 net_params['batch_size'] = tune.choice([16, 32, 64, 128])
-net_params['lin_loss_penalty'] = tune.uniform(0, 1)
+net_params['activation_type'] = tune.choice(['relu', 'tanh'])
+
 
 # Hyperparameter tuning parameters:
+lin_loss_penalty_lst = np.linspace(0, 1, 11)
 num_samples = -1
-time_budget_s = 10*60*60                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 120                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
@@ -206,51 +209,59 @@ model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train-hover_thrust, x
 trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
 tune.register_trainable('trainable_pipeline', trainable)
 
-scheduler = ASHAScheduler(
-    time_attr='training_iteration',
-    metric='loss',
-    mode='min',
-    max_t=net_params['epochs'],
-    grace_period=30,
-)
-result = tune.run(
-    'trainable_pipeline',
-    config=net_params,
-    checkpoint_at_end=True,
-    num_samples=num_samples,
-    time_budget_s=time_budget_s,
-    scheduler=scheduler,
-    resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
-    verbose=1
-)
-best_trial = result.get_best_trial("loss", "min", "last")
-best_config = result.get_best_config("loss", "min")
+best_trial_lst, best_config_lst = [], []
+for lin_loss in lin_loss_penalty_lst:
+    net_params['lin_loss_penalty'] = lin_loss
+    scheduler = ASHAScheduler(
+        time_attr='training_iteration',
+        metric='loss',
+        mode='min',
+        max_t=net_params['epochs'],
+        grace_period=30,
+    )
+    result = tune.run(
+        'trainable_pipeline',
+        config=net_params,
+        checkpoint_at_end=True,
+        num_samples=num_samples,
+        time_budget_s=time_budget_s,
+        scheduler=scheduler,
+        resources_per_trial={'cpu': resources_cpu, 'gpu': resources_gpu},
+        verbose=1
+    )
+    best_trial_lst.append(result.get_best_trial("loss", "min", "last"))
+    best_config_lst.append(result.get_best_config("loss", "min"))
 
 # Analyze the results:
-# Extract validation loss:
-val_loss = best_trial.last_result["loss"]
+val_loss = []
+test_loss = []
+open_loop_mse = []
+open_loop_std = []
+for best_trial, best_config in zip(best_trial_lst, best_config_lst):
+    # Extract validation loss:
+    val_loss.append(best_trial.last_result["loss"])
 
-# Calculate test loss:
-best_net = KoopmanNetCtrl(best_trial.config)
-best_net.construct_net()
-best_model = KoopDnn(best_net)
-checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
-model_state, optimizer_state = torch.load(checkpoint_path)
-best_model.net.load_state_dict(model_state)
-test_loss = best_model.test_loss(xs_test, t_eval_test, u_test=us_test).cpu()
+    # Calculate test loss:
+    best_net = KoopmanNetCtrl(best_trial.config)
+    best_net.construct_net()
+    best_model = KoopDnn(best_net)
+    checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
+    model_state, optimizer_state = torch.load(checkpoint_path)
+    best_model.net.load_state_dict(model_state)
+    test_loss.append(best_model.test_loss(xs_test, t_eval_test, u_test=us_test).cpu())
 
-# Calculate open loop mse and std:
-n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_params['first_obs_const'])
-best_model.construct_koopman_model()
-sys_kdnn = BilinearLiftedDynamics(n_tot, m, best_model.A, best_model.B, best_model.C,
-                                      best_model.basis_encode, continuous_mdl=False, dt=dt)
-_, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
+    # Calculate open loop mse and std:
+    n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_params['first_obs_const'])
+    best_model.construct_koopman_model()
+    sys_kdnn = BilinearLiftedDynamics(n_tot, m, best_model.A, best_model.B, best_model.C,
+                                          best_model.basis_encode, continuous_mdl=False, dt=dt)
+    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
+    open_loop_mse.append(mse)
+    open_loop_std.append(std)
 
 print('Tuning procedure finalized.')
-print('Config: ', best_config)
-print('Validation loss %.6f, test loss %.6f, open loop mse %.6f, open loop std %.6f' %(val_loss, test_loss, mse, std))
 
 outfile = open(directory + '/data/' + sys_name + '_best_params.pickle', 'wb')
-data_list_tuning = [best_config, val_loss, test_loss, mse, std]
+data_list_tuning = [best_config_lst, val_frac, test_loss, open_loop_mse, open_loop_std]
 dill.dump(data_list_tuning, outfile)
 outfile.close()

@@ -1,6 +1,9 @@
 from matplotlib.pyplot import figure, grid, legend, plot, show, subplot, suptitle, title, savefig, ylim, ylabel, xlabel
 from numpy import array, gradient, zeros, tile
 import numpy as np
+import torch
+from torch.nn.utils import prune
+
 
 def plot_trajectory(X, X_d, U, U_nom, t, display=True, save=False, filename=''):
     """ Plots the position, velocity and control input
@@ -175,3 +178,11 @@ def calc_reduced_mdl(model):
 
     return A_red, B_red, C_red, useful_coords
 
+class ThresholdPruning(prune.BasePruningMethod):
+    PRUNING_TYPE = "unstructured"
+
+    def __init__(self, threshold):
+        self.threshold = threshold
+
+    def compute_mask(self, tensor, default_mask):
+        return torch.abs(tensor) > self.threshold

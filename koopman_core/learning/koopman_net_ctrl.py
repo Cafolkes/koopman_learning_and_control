@@ -4,8 +4,8 @@ from koopman_core.learning import KoopmanNet
 import numpy as np
 
 class KoopmanNetCtrl(KoopmanNet):
-    def __init__(self, net_params, standardizer=None):
-        super(KoopmanNetCtrl, self).__init__(net_params, standardizer=standardizer)
+    def __init__(self, net_params, standardizer_x=None, standardizer_u=None):
+        super(KoopmanNetCtrl, self).__init__(net_params, standardizer_x=standardizer_x, standardizer_u=standardizer_u)
 
     def construct_net(self):
         n = self.net_params['state_dim']
@@ -22,6 +22,8 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
             self.koopman_fc_act = nn.Linear(m*n_tot, n_tot-first_obs_const, bias=False)
+
+        self.parameters_to_prune = [(self.koopman_fc_drift, "weight"), (self.koopman_fc_act, "weight")]
 
     def forward(self, data):
         # data = [x, u, x_prime]
@@ -109,6 +111,10 @@ class KoopmanNetCtrl(KoopmanNet):
         self.A = drift_matrix.data.numpy()
         if override_kinematics:
             self.A[first_obs_const+int(n/2):,:] *= dt
+            if self.standardizer_x is not None:
+                x_dot_scaling = np.divide(self.standardizer_x.scale_[int(n/2):], self.standardizer_x.scale_[:int(n/2)]).reshape(-1,1)
+                self.A[first_obs_const: first_obs_const+int(n/2), :] = \
+                    np.multiply(self.A[first_obs_const: first_obs_const+int(n/2), :], x_dot_scaling)
         else:
             self.A[first_obs_const:, :] *= dt
         self.A += np.eye(n_tot)
@@ -121,9 +127,10 @@ class KoopmanNetCtrl(KoopmanNet):
         m = self.net_params['ctrl_dim']
         n_traj = data_x.shape[0]
 
-        data_scaled_x = self.preprocess_data(data_x, train_data)
+        data_scaled_x = self.preprocess_data(data_x, self.standardizer_x, train_data)
+        data_scaled_u = self.preprocess_data(data_u, self.standardizer_u, train_data)
         x = data_scaled_x[:, :-1, :]
-        u = data_u
+        u = data_scaled_u
         x_prime = data_scaled_x[:,1:,:]
 
         order = 'F'
@@ -136,3 +143,8 @@ class KoopmanNetCtrl(KoopmanNet):
         y = x_prime_flat.T - x_flat.T
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
+
+    def get_l1_norm_(self):
+        return torch.norm(self.koopman_fc_drift.weight.view(-1), p=1) + torch.norm(self.koopman_fc_act.weight.view(-1), p=1)
+
+
