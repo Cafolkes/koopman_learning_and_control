@@ -164,7 +164,7 @@ else:
     net_params['encoder_output_dim'] = 1
     net_params['optimizer'] = 'adam'
     net_params['lr'] = 1e-2
-    net_params['epochs'] = 50
+    net_params['epochs'] = 10
     net_params['batch_size'] = 128
     net_params['lin_loss_penalty'] = 0.5
     net_params['l2_reg'] = 0
@@ -172,6 +172,7 @@ else:
     net_params['first_obs_const'] = True
     net_params['override_kinematics'] = True
     net_params['dt'] = dt
+    net_params['activation_type'] = 'tanh'
 
 print(net_params)
 
@@ -179,7 +180,7 @@ print(net_params)
 # In[6]:
 
 
-standardizer_kdnn = preprocessing.StandardScaler(with_mean=False)
+standardizer_kdnn = preprocessing.StandardScaler()
 #standardizer_kdnn = None
 
 net = KoopmanNetAut(net_params, standardizer_x=standardizer_kdnn)

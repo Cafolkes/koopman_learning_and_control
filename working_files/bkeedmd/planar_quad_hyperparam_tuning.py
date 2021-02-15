@@ -156,25 +156,25 @@ net_params['dt'] = dt
 net_params['data_dir'] = directory + '/data'
 
 # DNN architecture parameters:
-net_params['epochs'] = 250
+net_params['epochs'] = 500
 net_params['optimizer'] = 'adam'
 net_params['lin_loss_penalty'] = 1.
 
 # DNN tunable parameters:
-net_params['encoder_hidden_width'] = tune.choice([20, 50, 100, 200])
-net_params['encoder_hidden_depth'] = tune.choice([1, 2, 3, 4, 10])
+net_params['encoder_hidden_width'] = tune.choice([20, 50, 100])
+net_params['encoder_hidden_depth'] = tune.choice([1, 2, 4])
 net_params['encoder_output_dim'] = tune.choice([1, 5, 10, 20])
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
-net_params['l2_reg'] = tune.loguniform(1e-6, 1e-1)
-net_params['l1_reg'] = tune.loguniform(1e-6, 1e-1)
-net_params['batch_size'] = tune.choice([16, 32, 64, 128])
+net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['batch_size'] = tune.choice([64, 128, 256])
 net_params['activation_type'] = tune.choice(['relu', 'tanh'])
 
 
 # Hyperparameter tuning parameters:
 lin_loss_penalty_lst = np.linspace(0, 1, 11)
 num_samples = -1
-time_budget_s = 3*60*60                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 60*60                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
@@ -202,12 +202,12 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-standardizer_x_kdnn = preprocessing.StandardScaler(with_mean=False)
-standardizer_u_kdnn = preprocessing.StandardScaler(with_mean=False)
+standardizer_x_kdnn = preprocessing.StandardScaler()
+standardizer_u_kdnn = preprocessing.StandardScaler()
 
 net = KoopmanNetCtrl(net_params, standardizer_x=standardizer_x_kdnn, standardizer_u=standardizer_u_kdnn)
 model_kdnn = KoopDnn(net)
-model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train-hover_thrust, x_val=xs_val, u_val=us_val-hover_thrust, t_val=t_eval_val)
+model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train, x_val=xs_val, u_val=us_val, t_val=t_eval_val)
 
 # Set up hyperparameter tuning:
 trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
@@ -261,13 +261,13 @@ for best_trial, best_config in zip(best_trial_lst, best_config_lst):
                                           best_model.basis_encode,
                                           continuous_mdl=False, dt=dt, standardizer_x=standardizer_x_kdnn,
                                           standardizer_u=standardizer_u_kdnn)
-    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
+    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test)
     open_loop_mse.append(mse)
     open_loop_std.append(std)
 
 print('Tuning procedure finalized.')
 
 outfile = open(directory + '/data/' + sys_name + '_best_params.pickle', 'wb')
-data_list_tuning = [best_config_lst, val_frac, test_loss, open_loop_mse, open_loop_std]
+data_list_tuning = [best_config_lst, val_loss, test_loss, open_loop_mse, open_loop_std]
 dill.dump(data_list_tuning, outfile)
 outfile.close()

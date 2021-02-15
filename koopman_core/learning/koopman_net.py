@@ -51,17 +51,12 @@ class KoopmanNet(nn.Module):
         pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
 
-        if validation:
-            total_loss = pred_loss + 0.1*lin_loss  #TODO: Think about best validation loss
-        else:
-            l1_loss = 0.
-            if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
-                l1_reg = self.net_params['l1_reg']
-                l1_loss = l1_reg*self.get_l1_norm_()
+        l1_loss = 0.
+        if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
+            l1_reg = self.net_params['l1_reg']
+            l1_loss = l1_reg*self.get_l1_norm_()
 
-            total_loss = pred_loss + alpha*lin_loss + l1_loss
-
-        return total_loss
+        return pred_loss + alpha*lin_loss + l1_loss
 
     def construct_encoder_(self):
         input_dim = self.net_params['state_dim']
@@ -87,21 +82,18 @@ class KoopmanNet(nn.Module):
             self.activation_fn = F.relu
         elif activation_type == 'tanh':
             self.activation_fn = torch.tanh
+        elif activation_type == 'sigmoid':
+            self.activation_fn = torch.sigmoid
         else:
             exit("Error: invalid activation function specified")
 
     def encode_forward_(self, x):
-        # TODO: Test tanh activation..
         if self.net_params['encoder_hidden_depth'] > 0:
-            #x = F.relu(self.encoder_fc_in(x))
-            #x = torch.tanh(self.encoder_fc_in(x))
             x = self.activation_fn(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
-                #x = F.relu(layer(x))
-                #x = torch.tanh(layer(x))
                 x = self.activation_fn(layer(x))
         x = self.encoder_fc_out(x)
-        x = self.encoder_output_norm(x)
+        #x = self.encoder_output_norm(x)
 
         return x
 

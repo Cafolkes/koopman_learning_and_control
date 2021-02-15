@@ -84,6 +84,8 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
 
         if sys.standardizer_x is not None:
             xs_pred[ii, :, :] = sys.standardizer_x.inverse_transform(xs_pred[ii, :, :])
+            if sys.standardizer_x.with_mean:
+                xs_pred[ii,: , :int(n/2)] += np.multiply(t_eval[:-1], sys.standardizer_x.mean_[int(n/2):].reshape(-1,1)).T
 
     error = xs[:, :-1, :] - xs_pred
     mse = np.mean(np.square(error))
