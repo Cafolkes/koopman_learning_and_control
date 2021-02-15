@@ -81,7 +81,7 @@ class KoopmanNet(nn.Module):
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
         #self.encoder_output_norm = nn.BatchNorm1d(output_dim)
-        self.encoder_output_norm = nn.LayerNorm(output_dim)
+        self.encoder_output_norm = nn.LayerNorm(output_dim)  #TODO: Evaluate output norm
 
         if activation_type == 'relu':
             self.activation_fn = F.relu

@@ -93,6 +93,7 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.encoder_fc_out.to(device)
 
+        self.encoder_output_norm.to(device)
         self.koopman_fc_drift.to(device)
         self.koopman_fc_act.to(device)
         self.C = self.C.to(device)
