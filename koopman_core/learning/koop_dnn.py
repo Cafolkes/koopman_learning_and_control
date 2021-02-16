@@ -130,7 +130,13 @@ class KoopDnn():
                     torch.save((self.net.state_dict(), self.optimizer.state_dict()), path)
                 tune.report(loss=(val_loss / val_steps))
 
+
         print("Finished Training")
+        prune.global_unstructured(
+            self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-5
+        )
+        prune.remove(self.net.koopman_fc_drift, 'weight')
+        prune.remove(self.net.koopman_fc_act, 'weight')
 
     def test_loss(self, x_test, t_test, u_test=None):
         device = 'cpu'
