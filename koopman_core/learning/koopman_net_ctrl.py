@@ -123,13 +123,13 @@ class KoopmanNetCtrl(KoopmanNet):
         B_vec = act_matrix.data.numpy()
         self.B = [B_vec[:, n_tot * ii:n_tot * (ii + 1)] * dt for ii in range(m)]
 
-    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
+    def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
         n_traj = data_x.shape[0]
 
-        data_scaled_x = self.preprocess_data(data_x, self.standardizer_x, train_data)
-        data_scaled_u = self.preprocess_data(data_u, self.standardizer_u, train_data)
+        data_scaled_x = self.preprocess_data(data_x, self.standardizer_x)
+        data_scaled_u = self.preprocess_data(data_u, self.standardizer_u)
         x = data_scaled_x[:, :-1, :]
         u = data_scaled_u
         x_prime = data_scaled_x[:,1:,:]

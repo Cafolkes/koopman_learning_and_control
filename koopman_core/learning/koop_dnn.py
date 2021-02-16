@@ -45,7 +45,7 @@ class KoopDnn():
         self.net.construct_net()
         self.set_optimizer_()
 
-        X_train, y_train = self.net.process(self.x_train, self.t_train, data_u=self.u_train, train_data=True)
+        X_train, y_train = self.net.process(self.x_train, self.t_train, data_u=self.u_train)
         X_val, y_val = self.net.process(self.x_val, self.t_val, data_u=self.u_val)
 
         if plot_data:
@@ -58,14 +58,17 @@ class KoopDnn():
 
         self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run, early_stop=early_stop)
 
-    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False, early_stop_crit=1e-3, early_stop_max_count=5):
+    def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False,
+                    early_stop_crit=1e-3, early_stop_max_count=5):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
         self.net.send_to(device)
 
-        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=0, pin_memory=True)
-        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'], shuffle=True, num_workers=0, pin_memory=True)
+        trainloader = torch.utils.data.DataLoader(dataset_train, batch_size=self.net.net_params['batch_size'],
+                                                  shuffle=True, num_workers=0, pin_memory=True)
+        valloader = torch.utils.data.DataLoader(dataset_val, batch_size=self.net.net_params['batch_size'],
+                                                shuffle=True, num_workers=0, pin_memory=True)
 
         val_loss_prev = np.inf
         no_improv_counter = 0

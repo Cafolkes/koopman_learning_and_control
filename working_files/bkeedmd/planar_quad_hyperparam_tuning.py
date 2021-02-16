@@ -9,7 +9,7 @@ import scipy as sc
 import dill
 from core.dynamics import ConfigurationDynamics
 from core.controllers import PDController
-from koopman_core.util import evaluate_ol_pred
+from koopman_core.util import evaluate_ol_pred, fit_standardizer
 from koopman_core.controllers import MPCController, PerturbedController
 from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
 from koopman_core.learning import KoopDnn, KoopmanNetCtrl
@@ -202,8 +202,8 @@ else:
     infile.close()
 
 # Define Koopman DNN model:
-standardizer_x_kdnn = preprocessing.StandardScaler()
-standardizer_u_kdnn = preprocessing.StandardScaler()
+standardizer_x_kdnn = fit_standardizer(xs_train, preprocessing.StandardScaler())
+standardizer_u_kdnn = fit_standardizer(us_train, preprocessing.StandardScaler())
 
 net = KoopmanNetCtrl(net_params, standardizer_x=standardizer_x_kdnn, standardizer_u=standardizer_u_kdnn)
 model_kdnn = KoopDnn(net)

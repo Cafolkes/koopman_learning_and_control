@@ -92,3 +92,10 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None):
     std = np.std(error)
 
     return error, mse, std
+
+def fit_standardizer(data, standardizer):
+    n_traj, traj_length, n = data.shape
+    data_flat = data.T.reshape((n, n_traj * traj_length), order='F')
+    standardizer.fit(data_flat.T)
+
+    return standardizer

@@ -25,7 +25,7 @@ class KoopmanNet(nn.Module):
     def send_to(self, device):
         pass
 
-    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
+    def process(self, data_x, t, data_u=None, downsample_rate=1):
         pass
 
     def construct_dyn_mat(self):
@@ -105,13 +105,7 @@ class KoopmanNet(nn.Module):
 
         return z
 
-    def preprocess_data(self, data, standardizer, train_data):
-        n_traj, traj_length, n = data.shape
-        data_flat = data.T.reshape((n, n_traj*traj_length), order='F')
-
-        if train_data and standardizer is not None:
-            standardizer.fit(data_flat.T)
-
+    def preprocess_data(self, data, standardizer):
         if standardizer is None:
             data_scaled = data
         else:

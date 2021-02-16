@@ -82,11 +82,11 @@ class KoopmanNetAut(KoopmanNet):
         self.koopman_fc_drift.to(device)
         self.C = self.C.to(device)
 
-    def process(self, data_x, t, data_u=None, downsample_rate=1, train_data=False):
+    def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']
         n_traj = data_x.shape[0]
 
-        data_scaled = self.preprocess_data(data_x, self.standardizer_x, train_data)
+        data_scaled = self.preprocess_data(data_x, self.standardizer_x)
         x = data_scaled[:, :-1, :]
         x_prime = data_scaled[:, 1:, :]
 
