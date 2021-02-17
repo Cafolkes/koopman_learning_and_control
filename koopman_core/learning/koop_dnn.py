@@ -173,7 +173,7 @@ class KoopDnn():
     def construct_koopman_model(self):
         self.net.send_to('cpu')
         self.construct_dyn_mat_()
-        self.C = self.net.C
+        self.C = np.array(self.net.C)
 
     def construct_dyn_mat_(self):
         self.net.construct_dyn_mat()
