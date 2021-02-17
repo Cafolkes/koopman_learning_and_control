@@ -129,6 +129,8 @@ class KoopDnn():
             # Save Ray Tune checkpoint:
             if tune_run:
                 with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
+                    prune.remove(self.net.koopman_fc_drift, 'weight')
+                    prune.remove(self.net.koopman_fc_act, 'weight')
                     path = os.path.join(checkpoint_dir, "checkpoint")
                     torch.save((self.net.state_dict(), self.optimizer.state_dict()), path)
                 tune.report(loss=(val_loss / val_steps))
