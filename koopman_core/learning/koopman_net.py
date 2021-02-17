@@ -31,7 +31,7 @@ class KoopmanNet(nn.Module):
     def construct_dyn_mat(self):
         pass
 
-    def loss(self, outputs, labels, validation=False):
+    def loss(self, outputs, labels):
         # output = [x_pred, x_prime_pred, lin_error]
         # labels = [x, x_prime], penalize when lin_error is not zero
         n = self.net_params['state_dim']

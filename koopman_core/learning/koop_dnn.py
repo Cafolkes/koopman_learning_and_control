@@ -171,7 +171,7 @@ class KoopDnn():
                 inputs, labels = inputs.to(device), labels.to(device)
 
                 outputs = self.net(inputs)
-                loss = self.net.loss(outputs, labels, validation=True)
+                loss = self.net.loss(outputs, labels)
                 test_loss += loss.detach()
                 test_steps += 1
 

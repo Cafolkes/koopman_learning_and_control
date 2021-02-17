@@ -246,7 +246,7 @@ for best_trial, best_config in zip(best_trial_lst, best_config_lst):
     val_loss.append(best_trial.last_result["loss"])
 
     # Calculate test loss:
-    best_net = KoopmanNetCtrl(best_trial.config)
+    best_net = KoopmanNetCtrl(best_trial.config, standardizer_x=standardizer_x_kdnn, standardizer_u=standardizer_u_kdnn)
     best_net.construct_net()
     best_model = KoopDnn(best_net)
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
