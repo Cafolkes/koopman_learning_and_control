@@ -40,14 +40,11 @@ class BilinearMPCController(NonlinearMPCController):
         self._osqp_A_data[self._osqp_A_data_B_inds] = B_lst
 
     def update_linearization_(self):
-        A_lst = self.u_init @ self.B_flat + self.A_flat
-        A_lst_flat = A_lst.flatten()
+        A_lst_flat = (self.u_init @ self.B_flat + self.A_flat).flatten()
         B_lst_flat = (self.z_init[:-1, :] @ self.B_arr).flatten()
 
-        # TODO: (Comp time optimzation) Try to further improve calculation of r_vec
-        A_reshaped = A_lst.reshape(self.nx * self.N, self.nx)
-        self.r_vec[:] = (np.array([self.z_init[i, :] @ A_reshaped[i * self.nx:(i + 1) * self.nx, :]
-                                   for i in range(self.N)]) - self.z_init[1:, :]).flatten()
+        self.r_vec[:] = (np.array([self.dynamics.eval_dot(z, u, None)
+                                   for z, u in zip(self.z_init[:-1,:], self.u_init)]) - self.z_init[1:, :]).flatten()
 
         return A_lst_flat, B_lst_flat
 
