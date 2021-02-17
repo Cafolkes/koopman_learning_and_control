@@ -55,7 +55,7 @@ class BilinearMPCController(NonlinearMPCController):
         u = super(BilinearMPCController, self).eval(x, t)
 
         if self.standardizer_u is not None:
-            return self.standardizer_u.inverse_transform(u.reshape(1,-1)).T
+            return self.standardizer_u.inverse_transform(u.reshape(1,-1)).squeeze()
         else:
             return u
 
