@@ -174,7 +174,7 @@ net_params['activation_type'] = tune.choice(['relu', 'tanh'])
 # Hyperparameter tuning parameters:
 lin_loss_penalty_lst = np.linspace(0, 1, 11)
 num_samples = -1
-time_budget_s = 600                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 1.5*60*60                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
