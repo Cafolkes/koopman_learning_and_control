@@ -165,16 +165,16 @@ net_params['encoder_hidden_width'] = tune.choice([20, 50, 100])
 net_params['encoder_hidden_depth'] = tune.choice([1, 2, 4])
 net_params['encoder_output_dim'] = tune.choice([1, 5, 10, 20])
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
-net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
-net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['l2_reg'] = tune.loguniform(1e-5, 1e-2)
+net_params['l1_reg'] = tune.loguniform(1e-5, 1e-2)
 net_params['batch_size'] = tune.choice([64, 128, 256])
-net_params['activation_type'] = tune.choice(['relu', 'tanh'])
+net_params['activation_type'] = tune.choice(['tanh'])
 
 
 # Hyperparameter tuning parameters:
 lin_loss_penalty_lst = np.linspace(0, 1, 11)
 num_samples = -1
-time_budget_s = 1.5*60*60                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 6*60*60                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
