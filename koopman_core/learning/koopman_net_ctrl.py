@@ -51,8 +51,9 @@ class KoopmanNetCtrl(KoopmanNet):
         x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
 
         z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
+        z_norm = torch.norm(z, dim=1).reshape(-1, 1)
 
-        return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
+        return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff, z_norm), 1)
 
     def construct_drift_act_matrix_(self):
         n = self.net_params['state_dim']
@@ -93,7 +94,7 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.encoder_fc_out.to(device)
 
-        self.encoder_output_norm.to(device)
+        #self.encoder_output_norm.to(device)
         self.koopman_fc_drift.to(device)
         self.koopman_fc_act.to(device)
         self.C = self.C.to(device)

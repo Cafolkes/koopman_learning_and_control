@@ -5,6 +5,7 @@ from torch.utils.data import random_split
 from torch.nn.utils import prune
 from ray import tune
 from koopman_core.learning.utils import ThresholdPruning
+from koopman_core.learning import KoopmanNetCtrl
 import os
 
 class KoopDnn():
@@ -81,10 +82,10 @@ class KoopDnn():
                 inputs, labels = data
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                if epoch > int(self.net.net_params['epochs'] * 0.8):
-                    prune.global_unstructured(
-                        self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-5
-                    )
+                #if epoch > int(self.net.net_params['epochs'] * 0.9):
+                #    prune.global_unstructured(
+                #        self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-8
+                #    )
 
                 self.optimizer.zero_grad()
                 outputs = self.net(inputs)
@@ -131,7 +132,7 @@ class KoopDnn():
                 with tune.checkpoint_dir(step=epoch) as checkpoint_dir:
                     if prune.is_pruned(self.net.koopman_fc_drift):
                         prune.remove(self.net.koopman_fc_drift, 'weight')
-                    if prune.is_pruned(self.net.koopman_fc_act):
+                    if type(self.net) is KoopmanNetCtrl and prune.is_pruned(self.net.koopman_fc_act):
                         prune.remove(self.net.koopman_fc_act, 'weight')
 
                     path = os.path.join(checkpoint_dir, "checkpoint")
@@ -140,13 +141,13 @@ class KoopDnn():
 
 
         print("Finished Training")
-        prune.global_unstructured(
-            self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-5
-        )
-        if prune.is_pruned(self.net.koopman_fc_drift):
-            prune.remove(self.net.koopman_fc_drift, 'weight')
-        if prune.is_pruned(self.net.koopman_fc_act):
-            prune.remove(self.net.koopman_fc_act, 'weight')
+        #prune.global_unstructured(
+        #    self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=1e-8
+        #)
+        #if prune.is_pruned(self.net.koopman_fc_drift):
+        #    prune.remove(self.net.koopman_fc_drift, 'weight')
+        #if type(self.net) is KoopmanNetCtrl and prune.is_pruned(self.net.koopman_fc_act):
+        #   prune.remove(self.net.koopman_fc_act, 'weight')
 
     def test_loss(self, x_test, t_test, u_test=None):
         device = 'cpu'

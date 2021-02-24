@@ -42,21 +42,23 @@ class KoopmanNet(nn.Module):
         x_prime_diff_pred = outputs[:, n_override_kinematics:n]
         x_prime_diff = labels[:, n_override_kinematics:]
 
-        z_prime_diff_pred = outputs[:, n:n + n_z]
-        z_prime_diff = outputs[:, n + n_z:]
+        z_prime_diff_pred = outputs[:, n:n+n_z]
+        z_prime_diff = outputs[:, n+n_z: n+2*n_z]
+        z_norm = outputs[:, n+2*n_z:]
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
         pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
+        #norm_loss = criterion(z_norm, torch.ones_like(z_norm))
 
         l1_loss = 0.
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
             l1_reg = self.net_params['l1_reg']
             l1_loss = l1_reg*self.get_l1_norm_()
 
-        return pred_loss + alpha*lin_loss + l1_loss
+        return pred_loss + alpha*lin_loss + l1_loss #+ 1e-8*norm_loss
 
     def construct_encoder_(self):
         input_dim = self.net_params['state_dim']
@@ -76,7 +78,7 @@ class KoopmanNet(nn.Module):
             self.encoder_fc_out = nn.Linear(input_dim, output_dim)
 
         #self.encoder_output_norm = nn.BatchNorm1d(output_dim)
-        self.encoder_output_norm = nn.LayerNorm(output_dim)  #TODO: Evaluate output norm
+        #self.encoder_output_norm = nn.LayerNorm(output_dim)  #TODO: Evaluate output norm
 
         if activation_type == 'relu':
             self.activation_fn = F.relu
@@ -84,6 +86,8 @@ class KoopmanNet(nn.Module):
             self.activation_fn = torch.tanh
         elif activation_type == 'sigmoid':
             self.activation_fn = torch.sigmoid
+        elif activation_type == 'sin':
+            self.activation_fn = torch.sin
         else:
             exit("Error: invalid activation function specified")
 

@@ -107,7 +107,7 @@ sys_name = 'analytic_koop_sys'
 
 
 # Data collection parameters:
-collect_data = False
+collect_data = True
 dt = 1.0e-2                                                         # Time step length
 traj_length_dc = 4.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
@@ -158,21 +158,21 @@ if load_tuned_params:
 
 else:
     net_params = {}
-    net_params['state_dim'] = n
+    net_params['state_dim'] = 4
     net_params['encoder_hidden_width'] = 100
     net_params['encoder_hidden_depth'] = 1
     net_params['encoder_output_dim'] = 1
     net_params['optimizer'] = 'adam'
-    net_params['lr'] = 1e-2
-    net_params['epochs'] = 10
+    net_params['lr'] = 2e-3
+    net_params['epochs'] = 100
     net_params['batch_size'] = 128
-    net_params['lin_loss_penalty'] = 0.5
+    net_params['lin_loss_penalty'] = 0.2
     net_params['l2_reg'] = 0
     net_params['l1_reg'] = 0
+    net_params['activation_type'] = 'relu'
     net_params['first_obs_const'] = True
     net_params['override_kinematics'] = True
     net_params['dt'] = dt
-    net_params['activation_type'] = 'tanh'
 
 print(net_params)
 
@@ -180,7 +180,10 @@ print(net_params)
 # In[6]:
 
 
-standardizer_kdnn = preprocessing.StandardScaler()
+from sklearn import preprocessing
+from koopman_core.util import fit_standardizer
+
+standardizer_kdnn = fit_standardizer(xs_train, preprocessing.StandardScaler())
 #standardizer_kdnn = None
 
 net = KoopmanNetAut(net_params, standardizer_x=standardizer_kdnn)
@@ -192,7 +195,7 @@ sys_koop_dnn = LinearLiftedDynamics(model_koop_dnn.A, None, model_koop_dnn.C, mo
                                     continuous_mdl=False, dt=dt, standardizer_x=standardizer_kdnn)
 
 
-# In[7]:
+# In[ ]:
 
 
 sys_koop_dnn.A
@@ -207,15 +210,15 @@ sys_koop_dnn.A
 # \end{equation}
 # 
 
-# In[8]:
+# In[ ]:
 
 
 #DMD parameters:
 alpha_dmd = 5.4e-4
-tune_mdl_dmd = True
+tune_mdl_dmd = False
 
 
-# In[9]:
+# In[ ]:
 
 
 basis = lambda x: x
@@ -244,15 +247,15 @@ if tune_mdl_dmd:
 #     \mathbf{z}_{k+1} = A_{edmd}\mathbf{z}_k, \qquad \mathbf{z} = \boldsymbol{\phi(x)}
 # \end{equation}
 
-# In[10]:
+# In[ ]:
 
 
 #EDMD parameters:
 alpha_edmd = 1.2e-4
-tune_mdl_edmd = True
+tune_mdl_edmd = False
 
 
-# In[11]:
+# In[ ]:
 
 
 koop_features = preprocessing.PolynomialFeatures(degree=2)
@@ -282,14 +285,14 @@ if tune_mdl_edmd:
 # with the control sequence of each trajectory executed in the data set with each of the models, and finally comparing
 # the mean and standard deviation of the error between the true and predicted evolution over the trajectories. All the models are evaluated on 2 test data sets. One nominal data set (no signal or process noise) and a data set with process noise. No test data with signal noise is used, as we would need to fix the signal noise sequence to do a fair comparison in open loop prediction, hence resulting in the same comparison as the 2 data sets used.
 
-# In[12]:
+# In[ ]:
 
 
 # Prediction performance evaluation parameters:
 n_traj_ol = n_traj_train                                                     # Number of trajectories to execute, open loop
 
 
-# In[13]:
+# In[ ]:
 
 
 from koopman_core.util import evaluate_ol_pred
@@ -323,7 +326,7 @@ print(tabulate(table_data,
                headers=['Mean squared error', 'Standard deviation']))
 
 
-# In[14]:
+# In[ ]:
 
 
 import matplotlib.pyplot as plt
@@ -360,7 +363,14 @@ plt.savefig(folder_plots + 'koop_sys_prediction.pdf', format='pdf', dpi=2400, bb
 plt.show()
 
 
-# In[15]:
+# In[ ]:
+
+
+print(standardizer_kdnn.mean_)
+print(standardizer_kdnn.scale_)
+
+
+# In[ ]:
 
 
 analytic_koop = sc.linalg.expm(np.array([[mu, 0, 0], [0, lambd, -lambd], [0, 0, mu]])*dt)
