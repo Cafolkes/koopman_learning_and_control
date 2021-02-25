@@ -52,7 +52,10 @@ class BilinearEdmd(Edmd):
                 self.B.append(np.concatenate((np.zeros((int(self.n/2)+int(self.first_obs_const), self.n_lift)),
                                      coefs[:, self.n_lift * (ii + 1):self.n_lift * (ii + 2)]), axis=0))
         else:
-            self.A = coefs[:, :self.n_lift]
+            if self.continuous_mdl:
+                self.A = coefs[:, :self.n_lift]
+            else:
+                self.A = coefs[:, :self.n_lift] + np.eye(self.n_lift)
             for ii in range(self.m):
                 self.B.append(coefs[:, self.n_lift * (ii + 1):self.n_lift * (ii + 2)])
 

@@ -161,7 +161,7 @@ else:
     net_params['state_dim'] = 4
     net_params['encoder_hidden_width'] = 100
     net_params['encoder_hidden_depth'] = 1
-    net_params['encoder_output_dim'] = 1
+    net_params['encoder_output_dim'] = 2
     net_params['optimizer'] = 'adam'
     net_params['lr'] = 2e-3
     net_params['epochs'] = 100

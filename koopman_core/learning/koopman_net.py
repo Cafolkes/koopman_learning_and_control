@@ -11,6 +11,9 @@ class KoopmanNet(nn.Module):
         self.standardizer_u = standardizer_u
 
         self.encoder = None
+        self.x_running_mean = None
+        self.x_running_var = None
+
 
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
@@ -91,13 +94,36 @@ class KoopmanNet(nn.Module):
         else:
             exit("Error: invalid activation function specified")
 
-    def encode_forward_(self, x):
+    def encode_forward_(self, x, update_stats=True):
         if self.net_params['encoder_hidden_depth'] > 0:
             x = self.activation_fn(self.encoder_fc_in(x))
             for layer in self.encoder_fc_hid:
                 x = self.activation_fn(layer(x))
         x = self.encoder_fc_out(x)
         #x = self.encoder_output_norm(x)
+        #x = self.batch_normalize_(x, update_stats)
+
+        return x
+
+    def batch_normalize_(self, x, update_stats, eps=1e-5, momentum=0.1):
+        if update_stats:
+            #self.x_mean = torch.mean(x, 0).reshape(1,-1)
+            self.x_var = torch.std(x, 0).reshape(1,-1)
+
+            if self.x_running_mean is None and self.x_running_var is None:
+                #self.x_running_mean = self.x_mean
+                self.x_running_var = self.x_var
+            else:
+                #self.x_running_mean = self.x_running_mean * (1-momentum) + self.x_mean * momentum
+                self.x_running_var = self.x_running_var * (1-momentum) + self.x_var * momentum
+
+        if self.training:
+            #x = torch.divide(x - self.x_mean, torch.sqrt(self.x_var + eps))
+            x = torch.divide(x, torch.sqrt(self.x_var + eps))
+        else:
+            #x = torch.divide(x - self.x_running_mean, torch.sqrt(self.x_running_var + eps))
+            #x = torch.divide(x, torch.sqrt(self.x_running_var + eps))  # TODO: Evaluate if any scaling is necessary..
+            pass
 
         return x
 
@@ -105,7 +131,7 @@ class KoopmanNet(nn.Module):
         first_obs_const = int(self.net_params['first_obs_const'])
         self.eval()
         x_t = torch.from_numpy(x).float()
-        z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t).detach().numpy()), axis=1)
+        z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t, update_stats=False).detach().numpy()), axis=1)
 
         return z
 

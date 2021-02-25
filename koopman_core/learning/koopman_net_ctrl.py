@@ -37,8 +37,8 @@ class KoopmanNetCtrl(KoopmanNet):
         x_prime = data[:, n+m:]
 
         # Define linearity networks:
-        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x)), 1)
-        z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const + n:]  # TODO: Assumes z = [x phi]^T, generalize?
+        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x, update_stats=True)), 1)
+        z_prime_diff = self.encode_forward_(x_prime, update_stats=False) - z[:, first_obs_const + n:]  # TODO: Assumes z = [x phi]^T, generalize?
 
         z_u = torch.cat(
             [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u_i), 0, 1) for u_i in torch.transpose(u, 0, 1)], 1)

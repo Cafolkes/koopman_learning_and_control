@@ -59,7 +59,10 @@ class Edmd():
                                      coefs[:,self.n_lift:]), axis=0)
 
         else:
-            self.A = coefs[:, :self.n_lift]
+            if self.continuous_mdl:
+                self.A = coefs[:, :self.n_lift]
+            else:
+                self.A = coefs[:, :self.n_lift] + np.eye(self.n_lift)
             self.B = coefs[:, self.n_lift:]
 
         #TODO: Add possibility of learning C-matrix.

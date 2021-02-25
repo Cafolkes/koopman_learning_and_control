@@ -33,8 +33,8 @@ class KoopmanNetAut(KoopmanNet):
 
         # Define autoencoder networks:
         x = x_vec[:, :n]
-        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x)), 1)
-        z_prime_diff = self.encode_forward_(x_prime_vec) - z[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
+        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x, update_stats=True)), 1)
+        z_prime_diff = self.encode_forward_(x_prime_vec, update_stats=False) - z[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
 
         # Define linearity networks:
         drift_matrix = self.construct_drift_matrix_()
