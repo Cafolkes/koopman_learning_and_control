@@ -132,9 +132,9 @@ dt = 1.0e-2                                                         # Time step 
 traj_length_dc = 2.                                                 # Trajectory length, data collection
 n_pred_dc = int(traj_length_dc/dt)                                  # Number of time steps, data collection
 t_eval = dt * np.arange(n_pred_dc + 1)                              # Simulation time points
-n_traj_train = 250                                                      # Number of trajectories to execute, data collection
+n_traj_train = 500                                                      # Number of trajectories to execute, data collection
 n_traj_test = 100                                                      # Number of trajectories to execute, data collection
-noise_var = 5.                                                      # Exploration noise to perturb controller, data collection
+noise_var = 2.                                                      # Exploration noise to perturb controller, data collection
 directory = os.path.abspath("working_files/bkeedmd/")                                                  # Path to save learned models
 
 xmax = np.array([2, 2, np.pi/3, 2.,2.,2.])                          # State constraints, trajectory generation
@@ -163,18 +163,18 @@ net_params['lin_loss_penalty'] = 1.
 # DNN tunable parameters:
 net_params['encoder_hidden_width'] = tune.choice([20, 50, 100])
 net_params['encoder_hidden_depth'] = tune.choice([1, 2, 4])
-net_params['encoder_output_dim'] = tune.choice([1, 5, 10, 20])
+net_params['encoder_output_dim'] = tune.choice([2, 5, 10, 20])
 net_params['lr'] = tune.loguniform(1e-5, 1e-2)
-net_params['l2_reg'] = tune.loguniform(1e-5, 1e-2)
-net_params['l1_reg'] = tune.loguniform(1e-5, 1e-2)
-net_params['batch_size'] = tune.choice([64, 128, 256])
-net_params['activation_type'] = tune.choice(['tanh'])
+net_params['l2_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['l1_reg'] = tune.loguniform(1e-6, 1e-2)
+net_params['batch_size'] = tune.choice([64, 128, 256, 512])
+net_params['activation_type'] = tune.choice(['relu', 'tanh'])
 
 
 # Hyperparameter tuning parameters:
-lin_loss_penalty_lst = np.linspace(0, 1, 11)
+lin_loss_penalty_lst = [1e-3, 1e-2, 1e-1, 2e-1, 3e-1, 4e-1, 5e-1, 6e-1, 7e-1, 8e-1, 9e-1, 1, 1e1, 1e2]
 num_samples = -1
-time_budget_s = 6*60*60                                    # Time budget for tuning process for each n_multistep value
+time_budget_s = 60*60                                    # Time budget for tuning process for each n_multistep value
 if torch.cuda.is_available():
     resources_cpu = 2
     resources_gpu = 0.2
@@ -207,7 +207,7 @@ standardizer_u_kdnn = fit_standardizer(us_train, preprocessing.StandardScaler())
 
 net = KoopmanNetCtrl(net_params, standardizer_x=standardizer_x_kdnn, standardizer_u=standardizer_u_kdnn)
 model_kdnn = KoopDnn(net)
-model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train, x_val=xs_val, u_val=us_val, t_val=t_eval_val)
+model_kdnn.set_datasets(xs_train, t_eval_train, u_train=us_train-hover_thrust, x_val=xs_val, u_val=us_val-hover_thrust, t_val=t_eval_val)
 
 # Set up hyperparameter tuning:
 trainable = lambda config: model_kdnn.model_pipeline(config, print_epoch=False, tune_run=True)
@@ -252,7 +252,7 @@ for best_trial, best_config in zip(best_trial_lst, best_config_lst):
     checkpoint_path = os.path.join(best_trial.checkpoint.value, 'checkpoint')
     model_state, optimizer_state = torch.load(checkpoint_path)
     best_model.net.load_state_dict(model_state)
-    test_loss.append(best_model.test_loss(xs_test, t_eval_test, u_test=us_test).cpu())
+    test_loss.append(best_model.test_loss(xs_test, t_eval_test, u_test=us_test-hover_thrust).cpu())
 
     # Calculate open loop mse and std:
     n_tot = net_params['state_dim'] + best_config['encoder_output_dim'] + int(net_params['first_obs_const'])
@@ -261,7 +261,7 @@ for best_trial, best_config in zip(best_trial_lst, best_config_lst):
                                           best_model.basis_encode,
                                           continuous_mdl=False, dt=dt, standardizer_x=standardizer_x_kdnn,
                                           standardizer_u=standardizer_u_kdnn)
-    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test)
+    _, mse, std = evaluate_ol_pred(sys_kdnn, xs_test, t_eval_test, us=us_test-hover_thrust)
     open_loop_mse.append(mse)
     open_loop_std.append(std)
 

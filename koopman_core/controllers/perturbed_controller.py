@@ -24,11 +24,12 @@ class PerturbedController(Controller):
 
     def eval(self, x, t):
         u_nom = self.nom_controller.eval(x,t)
-        #u_old = np.copy(u_nom)
         if self.umin is not None:
             u_nom = np.maximum(u_nom, self.umin)
 
         if self.umax is not None:
             u_nom = np.minimum(u_nom, self.umax)
-        #print(u_old, u_nom)
-        return self.const_offset + u_nom + np.random.normal(size=u_nom.shape, scale=self.pert_noise_var)
+
+        # TODO: Add support for multiple distributions
+        #return self.const_offset + u_nom + np.random.normal(size=u_nom.shape, scale=self.pert_noise_var)
+        return self.const_offset + u_nom + np.random.uniform(-self.pert_noise_var, self.pert_noise_var,size=u_nom.shape)

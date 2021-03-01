@@ -54,7 +54,7 @@ class KoopmanNet(nn.Module):
         criterion = nn.MSELoss()
 
         pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
-        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)
+        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
 
         l1_loss = 0.
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
