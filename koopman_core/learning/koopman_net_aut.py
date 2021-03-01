@@ -20,6 +20,7 @@ class KoopmanNetAut(KoopmanNet):
         else:
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
 
+        self.opt_parameters_dyn_mats.append(self.koopman_fc_drift.weight)
         self.parameters_to_prune = [(self.koopman_fc_drift, "weight")]
 
     def forward(self, data):
@@ -33,8 +34,8 @@ class KoopmanNetAut(KoopmanNet):
 
         # Define autoencoder networks:
         x = x_vec[:, :n]
-        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x, update_stats=True)), 1)
-        z_prime_diff = self.encode_forward_(x_prime_vec, update_stats=False) - z[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
+        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x)), 1)
+        z_prime_diff = self.encode_forward_(x_prime_vec) - z[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
 
         # Define linearity networks:
         drift_matrix = self.construct_drift_matrix_()
@@ -44,9 +45,8 @@ class KoopmanNetAut(KoopmanNet):
         x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
 
         z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const+n:]  # TODO: Assumes z = [x phi]^T, generalize?
-        z_norm = torch.norm(z, dim=1).reshape(-1,1)
 
-        return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff, z_norm), 1)
+        return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
 
     def construct_drift_matrix_(self):
         n = self.net_params['state_dim']

@@ -73,8 +73,12 @@ class KoopDnn():
 
         val_loss_prev = np.inf
         no_improv_counter = 0
+        self.train_loss_hist = []
+        self.val_loss_hist = []
         for epoch in range(self.net.net_params['epochs']):
             running_loss = 0.0
+            running_pred_loss = 0.0
+            running_lin_loss = 0.0
             epoch_steps = 0
 
 
@@ -89,15 +93,19 @@ class KoopDnn():
 
                 self.optimizer.zero_grad()
                 outputs = self.net(inputs)
-                loss = self.net.loss(outputs, labels)
+                loss, pred_loss, lin_loss = self.net.loss(outputs, labels)
                 loss.backward()
                 self.optimizer.step()
 
                 running_loss += loss.detach()
+                running_pred_loss += pred_loss.detach()
+                running_lin_loss += lin_loss.detach()
                 epoch_steps += 1
 
             # Validation loss:
             val_loss = 0.0
+            val_pred_loss = 0.0
+            val_lin_loss = 0.0
             val_steps = 0
             for data in valloader:
                 with torch.no_grad():
@@ -105,13 +113,17 @@ class KoopDnn():
                     inputs, labels = inputs.to(device), labels.to(device)
 
                     outputs = self.net(inputs)
-                    loss = self.net.loss(outputs, labels)
+                    loss, pred_loss, lin_loss = self.net.loss(outputs, labels)
                     val_loss += float(loss.detach())
+                    val_pred_loss += float(pred_loss.detach())
+                    val_lin_loss += float(lin_loss.detach())
                     val_steps += 1
 
             # Print epoch loss:
+            self.train_loss_hist.append((running_loss/epoch_steps, running_pred_loss/epoch_steps, running_lin_loss/epoch_steps))
+            self.val_loss_hist.append((val_loss/val_steps, val_pred_loss/val_steps, val_lin_loss/val_steps))
             if print_epoch:
-                print('Epoch %3d: train loss: %.8f, validation loss: %.8f' %(epoch + 1, running_loss/epoch_steps, val_loss/val_steps))
+                print('Epoch %3d: train loss: %.8f, validation loss: %.8f' %(epoch + 1, self.train_loss_hist[-1][0], self.val_loss_hist[-1][0]))
 
             # Early stop if no improvement:
             if early_stop:
@@ -203,11 +215,17 @@ class KoopDnn():
         if self.net.net_params['optimizer'] == 'sgd':
             lr = self.net.net_params['lr']
             momentum = self.net.net_params['momentum']
-            self.optimizer = optim.SGD(self.net.parameters(), lr=lr, momentum=momentum)
+            self.optimizer_encoder = optim.SGD(self.net.opt_parameters_encoder, lr=lr, momentum=momentum)
+            self.optimizer_dyn_mats = optim.SGD(self.net.opt_parameters_dyn_mats, lr=lr, momentum=momentum)
         elif self.net.net_params['optimizer'] == 'adam':
             lr = self.net.net_params['lr']
             weight_decay = self.net.net_params['l2_reg']
             self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
+        elif self.net.net_params['optimizer'] == 'adamax':
+            lr = self.net.net_params['lr']
+            weight_decay = self.net.net_params['l2_reg']
+            self.optimizer = optim.Adam(self.net.parameters(), lr=lr, weight_decay=weight_decay)
+
 
     def plot_train_data_(self, X, y):
         import matplotlib.pyplot as plt

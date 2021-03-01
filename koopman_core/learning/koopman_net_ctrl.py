@@ -23,6 +23,8 @@ class KoopmanNetCtrl(KoopmanNet):
             self.koopman_fc_drift = nn.Linear(n_tot, n_tot-first_obs_const, bias=False)
             self.koopman_fc_act = nn.Linear(m*n_tot, n_tot-first_obs_const, bias=False)
 
+        self.opt_parameters_dyn_mats.append(self.koopman_fc_drift.weight)
+        self.opt_parameters_dyn_mats.append(self.koopman_fc_act.weight)
         self.parameters_to_prune = [(self.koopman_fc_drift, "weight"), (self.koopman_fc_act, "weight")]
 
     def forward(self, data):
@@ -37,8 +39,8 @@ class KoopmanNetCtrl(KoopmanNet):
         x_prime = data[:, n+m:]
 
         # Define linearity networks:
-        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x, update_stats=True)), 1)
-        z_prime_diff = self.encode_forward_(x_prime, update_stats=False) - z[:, first_obs_const + n:]  # TODO: Assumes z = [x phi]^T, generalize?
+        z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x)), 1)
+        z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const + n:]  # TODO: Assumes z = [x phi]^T, generalize?
 
         z_u = torch.cat(
             [torch.transpose(torch.mul(torch.transpose(z, 0, 1), u_i), 0, 1) for u_i in torch.transpose(u, 0, 1)], 1)
@@ -94,7 +96,6 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.encoder_fc_out.to(device)
 
-        #self.encoder_output_norm.to(device)
         self.koopman_fc_drift.to(device)
         self.koopman_fc_act.to(device)
         self.C = self.C.to(device)
