@@ -161,17 +161,18 @@ else:
     net_params['state_dim'] = 4
     net_params['encoder_hidden_width'] = 100
     net_params['encoder_hidden_depth'] = 1
-    net_params['encoder_output_dim'] = 2
+    net_params['encoder_output_dim'] = 5
     net_params['optimizer'] = 'adam'
     net_params['lr'] = 2e-3
-    net_params['epochs'] = 100
+    net_params['epochs'] = 10
     net_params['batch_size'] = 128
     net_params['lin_loss_penalty'] = 0.2
     net_params['l2_reg'] = 0
     net_params['l1_reg'] = 0
     net_params['activation_type'] = 'relu'
     net_params['first_obs_const'] = True
-    net_params['override_kinematics'] = True
+    net_params['override_kinematics'] = False
+    net_params['override_C'] = False
     net_params['dt'] = dt
 
 print(net_params)

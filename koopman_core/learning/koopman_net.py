@@ -16,6 +16,13 @@ class KoopmanNet(nn.Module):
         self.x_running_mean = None
         self.x_running_var = None
 
+        if self.net_params['override_C']:
+            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['state_dim'] + \
+                         self.net_params['encoder_output_dim']
+        else:
+            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['encoder_output_dim']
+            assert self.net_params['override_kinematics'] is False, \
+                'Not overriding C while overriding kinematics not supported'
 
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
@@ -41,11 +48,13 @@ class KoopmanNet(nn.Module):
         # labels = [x, x_prime], penalize when lin_error is not zero
         n = self.net_params['state_dim']
         n_z = self.net_params['encoder_output_dim']
-        dt = self.net_params['dt']
+        #dt = self.net_params['dt']
         n_override_kinematics = int(n/2)*int(self.net_params['override_kinematics'])
 
-        x_prime_diff_pred = outputs[:, n_override_kinematics:n]
-        x_prime_diff = labels[:, n_override_kinematics:]
+        #x_prime_diff_pred = outputs[:, n_override_kinematics:n]
+        #x_prime_diff = labels[:, n_override_kinematics:]
+        x_prime_pred = outputs[:, n_override_kinematics:n]
+        x_prime = labels[:, n_override_kinematics:]
 
         z_prime_diff_pred = outputs[:, n:n+n_z]
         z_prime_diff = outputs[:, n+n_z: n+2*n_z]
@@ -53,8 +62,11 @@ class KoopmanNet(nn.Module):
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
-        lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
+        #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
+        pred_loss = criterion(x_prime_pred, x_prime)
+        #lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
+        lin_loss = criterion(z_prime_diff_pred, z_prime_diff / self.loss_scaler)/(n_z/n)
+        #lin_loss = criterion(z_prime_diff_pred, z_prime_diff) / n_z
 
         l1_loss = 0.
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
@@ -113,9 +125,14 @@ class KoopmanNet(nn.Module):
 
     def encode(self, x):
         first_obs_const = int(self.net_params['first_obs_const'])
+        override_C = self.net_params['override_C']
+
         self.eval()
         x_t = torch.from_numpy(x).float()
-        z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t).detach().numpy()), axis=1)
+        if override_C:
+            z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t).detach().numpy()), axis=1)
+        else:
+            z = np.concatenate((np.ones((x.shape[0], first_obs_const)), self.encode_forward_(x_t).detach().numpy()),  axis=1)
 
         return z
 

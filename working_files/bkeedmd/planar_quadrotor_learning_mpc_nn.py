@@ -415,13 +415,14 @@ else:
     net_params['optimizer'] = 'adam'
     net_params['activation_type'] = 'tanh'
     net_params['lr'] = 1e-2
-    net_params['epochs'] = 50
+    net_params['epochs'] = 5
     net_params['batch_size'] = 64
     net_params['lin_loss_penalty'] = 0.9
     net_params['l2_reg'] = 1e-5
     net_params['l1_reg'] = 1e-5
     net_params['first_obs_const'] = True
-    net_params['override_kinematics'] = True 
+    net_params['override_kinematics'] = False
+    net_params['override_C'] = False
     net_params['dt'] = dt
 
 print(net_params)

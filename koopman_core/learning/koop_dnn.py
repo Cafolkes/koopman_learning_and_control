@@ -193,7 +193,6 @@ class KoopDnn():
     def construct_koopman_model(self):
         self.net.send_to('cpu')
         self.construct_dyn_mat_()
-        self.C = np.array(self.net.C)
 
     def construct_dyn_mat_(self):
         self.net.construct_dyn_mat()
@@ -202,6 +201,7 @@ class KoopDnn():
             self.B = self.net.B
         except AttributeError:
             pass
+        self.C = self.net.C
 
     def basis_encode(self, x):
         if self.net.standardizer_x is None:
