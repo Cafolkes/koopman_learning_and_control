@@ -54,16 +54,22 @@ class KoopmanNet(nn.Module):
         #x_prime_diff_pred = outputs[:, n_override_kinematics:n]
         #x_prime_diff = labels[:, n_override_kinematics:]
         x_prime_pred = outputs[:, n_override_kinematics:n]
-        x_prime = labels[:, n_override_kinematics:]
+        x_prime = labels[:, n_override_kinematics:n]
 
-        z_prime_diff_pred = outputs[:, n:n+n_z]
-        z_prime_diff = outputs[:, n+n_z: n+2*n_z]
+        x_prime_diff_pred = outputs[:, n+n_override_kinematics:2*n]
+        x_prime_diff = labels[:, n+n_override_kinematics:2*n]
+
+        z_prime_diff_pred = outputs[:, 2*n:2*n+n_z]
+        z_prime_diff = outputs[:, 2*n+n_z: 2*n+2*n_z]
 
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
+        proj_loss = criterion(x_prime_pred, x_prime)
+
         #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
-        pred_loss = criterion(x_prime_pred, x_prime)
+        #pred_loss = criterion(x_prime_pred, x_prime)
+        pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler)
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
         lin_loss = criterion(z_prime_diff_pred, z_prime_diff / self.loss_scaler)/(n_z/n)
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff) / n_z
@@ -73,7 +79,7 @@ class KoopmanNet(nn.Module):
             l1_reg = self.net_params['l1_reg']
             l1_loss = l1_reg*self.get_l1_norm_()
 
-        tot_loss = pred_loss + alpha*lin_loss + l1_loss
+        tot_loss = proj_loss + pred_loss + alpha*lin_loss + l1_loss
         return tot_loss, pred_loss, alpha*lin_loss
 
     def construct_encoder_(self):

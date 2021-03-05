@@ -51,14 +51,18 @@ class KoopmanNetAut(KoopmanNet):
         if override_C:
             #x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
             x_prime_pred = torch.matmul(z + z_prime_diff_pred*self.loss_scaler, torch.transpose(self.C, 0, 1))
+            #x_prime_diff_pred = x_prime_pred - x
+            x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const + n:]
         else:
             #x_prime_pred = self.projection_fc(z + z_prime_diff_pred*dt)
             x_prime_pred = self.projection_fc(z + z_prime_diff_pred * self.loss_scaler)
+            x_prime_diff_pred = self.projection_fc(z_prime_diff_pred)
+            #x_prime_diff_pred = x_prime_pred - x
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const:]
 
         #return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
-        return torch.cat((x_prime_pred, z_prime_diff_pred, z_prime_diff), 1)
+        return torch.cat((x_prime_pred, x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
 
     def construct_drift_matrix_(self):
         n = self.net_params['state_dim']
@@ -118,8 +122,9 @@ class KoopmanNetAut(KoopmanNet):
 
         X = np.concatenate((x_flat.T, x_prime_flat.T), axis=1)
         #y = x_prime_flat.T - x_flat.T
-        y = x_prime_flat.T
-        self.loss_scaler = np.std(y - x_flat.T)
+        #y = x_prime_flat.T
+        y = np.concatenate((x_prime_flat.T, x_prime_flat.T - x_flat.T), axis=1)
+        self.loss_scaler = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
 
