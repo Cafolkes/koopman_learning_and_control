@@ -69,11 +69,10 @@ class KoopmanNet(nn.Module):
 
         #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         #pred_loss = criterion(x_prime_pred, x_prime)
-        pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler)
+        pred_loss = criterion(x_prime_diff_pred, torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:]))
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
-        lin_loss = criterion(z_prime_diff_pred, z_prime_diff / self.loss_scaler)/(n_z/n)
+        lin_loss = criterion(z_prime_diff_pred, z_prime_diff / self.loss_scaler_z)/(n_z/n)
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff) / n_z
-
         l1_loss = 0.
         if 'l1_reg' in self.net_params and self.net_params['l1_reg'] > 0:
             l1_reg = self.net_params['l1_reg']

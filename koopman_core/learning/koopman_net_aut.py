@@ -30,6 +30,7 @@ class KoopmanNetAut(KoopmanNet):
         # output = [x_pred, x_prime_pred, lin_error]
         n = self.net_params['state_dim']
         first_obs_const = int(self.net_params['first_obs_const'])
+        encoder_output_dim = self.net_params['encoder_output_dim']
         override_C = self.net_params['override_C']
 
         x = data[:, :n]
@@ -50,15 +51,18 @@ class KoopmanNetAut(KoopmanNet):
         # Define prediction network:
         if override_C:
             #x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
-            x_prime_pred = torch.matmul(z + z_prime_diff_pred*self.loss_scaler, torch.transpose(self.C, 0, 1))
+            # TODO: Debug and test
+            scaler = torch.cat((torch.ones(first_obs_const), self.loss_scaler_x, self.loss_scaler_z*torch.ones(encoder_output_dim)))
+            x_prime_pred = torch.matmul(z + torch.multiply(z_prime_diff_pred, scaler), torch.transpose(self.C, 0, 1))
             #x_prime_diff_pred = x_prime_pred - x
             x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const + n:]
         else:
+            scaler = torch.cat((torch.ones(first_obs_const), self.loss_scaler_z * torch.ones(encoder_output_dim)))
             #x_prime_pred = self.projection_fc(z + z_prime_diff_pred*dt)
-            x_prime_pred = self.projection_fc(z + z_prime_diff_pred * self.loss_scaler)
+            x_prime_pred = self.projection_fc(z) + \
+                           torch.multiply(self.projection_fc(torch.multiply(z_prime_diff_pred, scaler)), self.loss_scaler_x) # TODO: Split up in 2 parts, adjust for scale_x in diff
             x_prime_diff_pred = self.projection_fc(z_prime_diff_pred)
-            #x_prime_diff_pred = x_prime_pred - x
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const:]
 
         #return torch.cat((x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
@@ -124,7 +128,8 @@ class KoopmanNetAut(KoopmanNet):
         #y = x_prime_flat.T - x_flat.T
         #y = x_prime_flat.T
         y = np.concatenate((x_prime_flat.T, x_prime_flat.T - x_flat.T), axis=1)
-        self.loss_scaler = np.std(x_prime_flat.T - x_flat.T)
+        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0))
+        self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
 
@@ -132,19 +137,29 @@ class KoopmanNetAut(KoopmanNet):
         n = self.net_params['state_dim']
         first_obs_const = int(self.net_params['first_obs_const'])
         override_kinematics = self.net_params['override_kinematics']
+        encoder_output_dim = self.net_params['encoder_output_dim']
         override_C = self.net_params['override_C']
+
+        if override_C:
+            loss_scaler = np.concatenate((np.ones(first_obs_const), self.loss_scaler_x.numpy(), self.loss_scaler_z*np.ones(encoder_output_dim)))
+        else:
+            loss_scaler = np.concatenate((np.ones(first_obs_const), self.loss_scaler_z * np.ones(encoder_output_dim)))
 
         self.A = self.construct_drift_matrix_().data.numpy()
         if override_kinematics:
             #self.A[first_obs_const+int(n/2):, :] *= dt
-            self.A[first_obs_const + int(n / 2):, :] *= self.loss_scaler
+            self.A[first_obs_const + int(n/2):, :] = np.multiply(self.A[first_obs_const + int(n/2):, :],
+                                                                   loss_scaler[first_obs_const + int(n/2):].reshape(-1,1))
             if self.standardizer_x is not None:
                 x_dot_scaling = np.divide(self.standardizer_x.scale_[int(n/2):], self.standardizer_x.scale_[:int(n/2)]).reshape(-1,1)
                 self.A[first_obs_const: first_obs_const+int(n/2), :] = \
                     np.multiply(self.A[first_obs_const: first_obs_const+int(n/2), :], x_dot_scaling)
         else:
             #self.A[first_obs_const:, :] *= dt
-            self.A[first_obs_const:, :] *= self.loss_scaler
+            self.A[first_obs_const:, :] = np.multiply(self.A[first_obs_const:, :],
+                                                                   loss_scaler[first_obs_const:].reshape(-1, 1))
+            #self.A[first_obs_const:, :] *= self.loss_scaler_z
+            #self.A = np.multiply(self.A, loss_scaler.reshape(-1, 1))
 
         self.A += np.eye(self.n_tot)
 
