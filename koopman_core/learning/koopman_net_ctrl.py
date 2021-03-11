@@ -59,16 +59,18 @@ class KoopmanNetCtrl(KoopmanNet):
         # Define prediction network:
         if override_C:
             # x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
-            x_prime_pred = torch.matmul(z + z_prime_diff_pred * self.loss_scaler, torch.transpose(self.C, 0, 1))
+            #x_prime_pred = torch.matmul(z + z_prime_diff_pred * self.loss_scaler, torch.transpose(self.C, 0, 1))
+            x_proj = torch.matmul(z, torch.transpose(self.C, 0, 1))
             x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const + n:]
         else:
             # x_prime_pred = self.projection_fc(z + z_prime_diff_pred*dt)
-            x_prime_pred = self.projection_fc(z + z_prime_diff_pred * self.loss_scaler)
+            x_proj = self.projection_fc(z)
+            #x_prime_pred = self.projection_fc(z + z_prime_diff_pred * self.loss_scaler)
             x_prime_diff_pred = self.projection_fc(z_prime_diff_pred)
             z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const:]
 
-        return torch.cat((x_prime_pred, x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
+        return torch.cat((x_proj, x_prime_diff_pred, z_prime_diff_pred, z_prime_diff), 1)
 
     def construct_drift_act_matrix_(self):
         n = self.net_params['state_dim']
@@ -116,32 +118,6 @@ class KoopmanNetCtrl(KoopmanNet):
         else:
             self.projection_fc.to(device)
 
-    def construct_dyn_mat(self):
-        n = self.net_params['state_dim']
-        m = self.net_params['ctrl_dim']
-        first_obs_const = self.net_params['first_obs_const']
-        override_kinematics = self.net_params['override_kinematics']
-        override_C = self.net_params['override_C']
-
-        drift_matrix, act_matrix = self.construct_drift_act_matrix_()
-
-        self.A = drift_matrix.data.numpy()
-        if override_kinematics:
-            self.A[first_obs_const+int(n/2):,:] *= self.loss_scaler
-            if self.standardizer_x is not None:
-                x_dot_scaling = np.divide(self.standardizer_x.scale_[int(n/2):], self.standardizer_x.scale_[:int(n/2)]).reshape(-1,1)
-                self.A[first_obs_const: first_obs_const+int(n/2), :] = \
-                    np.multiply(self.A[first_obs_const: first_obs_const+int(n/2), :], x_dot_scaling)
-        else:
-            self.A[first_obs_const:, :] *= self.loss_scaler
-        self.A += np.eye(self.n_tot)
-
-        B_vec = act_matrix.data.numpy()
-        self.B = [B_vec[:, self.n_tot * ii:self.n_tot * (ii + 1)] * self.loss_scaler for ii in range(m)]
-
-        if not override_C:
-            self.C = self.projection_fc.weight.detach().numpy()
-
     def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
@@ -161,10 +137,48 @@ class KoopmanNetCtrl(KoopmanNet):
 
         X = np.concatenate((x_flat.T, u_flat.T, x_prime_flat.T), axis=1)
         #y = x_prime_flat.T
-        y = np.concatenate((x_prime_flat.T, x_prime_flat.T - x_flat.T), axis=1)
-        self.loss_scaler = np.std(x_prime_flat.T - x_flat.T)
+        y = np.concatenate((x_flat.T, x_prime_flat.T - x_flat.T), axis=1)
+
+        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0))
+        self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
+
+    def construct_dyn_mat(self):
+        n = self.net_params['state_dim']
+        m = self.net_params['ctrl_dim']
+        encoder_output_dim = self.net_params['encoder_output_dim']
+        first_obs_const = int(self.net_params['first_obs_const'])
+        override_kinematics = self.net_params['override_kinematics']
+        override_C = self.net_params['override_C']
+
+        if override_C:
+            loss_scaler = np.concatenate((np.ones(first_obs_const), self.loss_scaler_x.numpy(), self.loss_scaler_z*np.ones(encoder_output_dim)))
+        else:
+            loss_scaler = np.concatenate((np.ones(first_obs_const), self.loss_scaler_z * np.ones(encoder_output_dim)))
+
+        drift_matrix, act_matrix = self.construct_drift_act_matrix_()
+
+        self.A = drift_matrix.data.numpy()
+        if override_kinematics:
+            #self.A[first_obs_const+int(n/2):,:] *= self.loss_scaler
+            self.A[first_obs_const + int(n / 2):, :] = np.multiply(self.A[first_obs_const + int(n / 2):, :],
+                                                                   loss_scaler[first_obs_const + int(n / 2):].reshape(-1, 1))
+            if self.standardizer_x is not None:
+                x_dot_scaling = np.divide(self.standardizer_x.scale_[int(n/2):], self.standardizer_x.scale_[:int(n/2)]).reshape(-1,1)
+                self.A[first_obs_const: first_obs_const+int(n/2), :] = \
+                    np.multiply(self.A[first_obs_const: first_obs_const+int(n/2), :], x_dot_scaling)
+        else:
+            #self.A[first_obs_const:, :] *= self.loss_scaler
+            self.A[first_obs_const:, :] = np.multiply(self.A[first_obs_const:, :],
+                                                      loss_scaler[first_obs_const:].reshape(-1, 1))
+        self.A += np.eye(self.n_tot)
+
+        B_vec = act_matrix.data.numpy()
+        self.B = [np.multiply(B_vec[:, self.n_tot * ii:self.n_tot * (ii + 1)], loss_scaler.reshape(-1,1)) for ii in range(m)]
+
+        if not override_C:
+            self.C = self.projection_fc.weight.detach().numpy()
 
     def get_l1_norm_(self):
         return torch.norm(self.koopman_fc_drift.weight.view(-1), p=1) + torch.norm(self.koopman_fc_act.weight.view(-1), p=1)

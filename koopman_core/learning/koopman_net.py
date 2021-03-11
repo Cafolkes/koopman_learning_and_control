@@ -48,13 +48,13 @@ class KoopmanNet(nn.Module):
         # labels = [x, x_prime], penalize when lin_error is not zero
         n = self.net_params['state_dim']
         n_z = self.net_params['encoder_output_dim']
-        #dt = self.net_params['dt']
         n_override_kinematics = int(n/2)*int(self.net_params['override_kinematics'])
+        override_c = self.net_params['override_C']
 
         #x_prime_diff_pred = outputs[:, n_override_kinematics:n]
         #x_prime_diff = labels[:, n_override_kinematics:]
-        x_prime_pred = outputs[:, n_override_kinematics:n]
-        x_prime = labels[:, n_override_kinematics:n]
+        x_proj = outputs[:, n_override_kinematics:n]
+        x = labels[:, n_override_kinematics:n]
 
         x_prime_diff_pred = outputs[:, n+n_override_kinematics:2*n]
         x_prime_diff = labels[:, n+n_override_kinematics:2*n]
@@ -65,11 +65,17 @@ class KoopmanNet(nn.Module):
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        proj_loss = criterion(x_prime_pred, x_prime)
+        proj_loss = criterion(x_proj, x)
 
         #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         #pred_loss = criterion(x_prime_pred, x_prime)
-        pred_loss = criterion(x_prime_diff_pred, torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:]))
+        if override_c:
+            pred_loss = criterion(x_prime_diff_pred,
+                                  torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:]))
+        else:
+            pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler_z)
+
+
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
         lin_loss = criterion(z_prime_diff_pred, z_prime_diff / self.loss_scaler_z)/(n_z/n)
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff) / n_z
