@@ -1,18 +1,20 @@
+import os
+import sys
 import time
 
 import numpy as np
-import osqp
+from hpipm_python import *
+from hpipm_python.common import *
 from scipy import sparse
 
 from core.controllers.controller import Controller
 from koopman_core.dynamics import BilinearLiftedDynamics
 
-
-class NonlinearMPCController(Controller):
+class NonlinearMPCControllerHPIPM(Controller):
     """
     Class for nonlinear MPC with control-affine dynamics.
 
-    Quadratic programs are solved using OSQP.
+    Quadratic programs are solved using HPIPM.
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
@@ -90,20 +92,71 @@ class NonlinearMPCController(Controller):
         self.x_init_flat = self.x_init.flatten(order='F')
         # self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)ls
 
-        A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
-        B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
-        r_lst = [np.ones(self.nx) for _ in range(self.N)]
-        self.r_vec = np.array(r_lst).flatten()
+        dim = hpipm_ocp_qp_dim(self.N)
+        dim.set('nx', self.ns, 0, self.N)
+        dim.set('nu', self.nu, 0, self.N-1)
+        dim.set('nbx', self.ns, self.N+1)
+        dim.set('nbu', self.nu, self.N-1)
 
-        self.construct_objective_()
+        # Prepare problem matrices:
+        A_lst, B_lst, r_lst = self.update_linearization_()  # TODO: Consider storing in self
+        self.construct_linear_objective_()
         self.construct_constraint_vecs_(z0, None)
-        self.construct_constraint_matrix_(A_lst, B_lst)
-        self.construct_constraint_matrix_data_(A_lst, B_lst)
+        S = np.zeros((self.nu, self.ns))
+        Ju = np.eye(self.nu)
+        Jx = self.C
+        # TODO: prepare all data matrices..
 
-        # Create an OSQP object and setup workspace
-        self.prob = osqp.OSQP()
-        self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
-                        warm_start=True, verbose=False, polish=True, check_termination=25, eps_abs=1e-6, eps_rel=1e-6)
+        self.qp = hpipm_ocp_qp(dim)
+
+        # Set static problem data:
+        self.qp.set('Q', self.Q, 0, self.N-1) #TODO: Verify that method works ->
+        self.qp.set('Q', self.QN, self.N)
+        self.qp.set('S', S, 0, self.N-1)
+        self.qp.set('R', self.R, 0, self.N-1)
+
+        self.qp.set('Ju', Ju, 0, self.N)
+        self.qp.set('Jx', Jx, 0, self.N)
+
+        # Set dynamic problem data:
+        self.qp.set('lbx', self._hpipm_lbx[self.ns:self.ns], 0)  # Initial state
+        self.qp.set('ubx', self._hpipm_ubx[self.ns:self.ns], 0)  # Initial state
+        for ii in range(self.N-1):
+            self.qp.set('q', self._hpipm_q[ii*self.ns:(ii+1)*self.ns], ii, ii+1)
+            self.qp.set('r', self._hpipm_r[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
+
+            self.qp.set('A', A_lst[ii], ii, ii+1) #TODO: Verify that method works ->
+            self.qp.set('B', B_lst[ii], ii, ii+1)
+            self.qp.set('b', r_lst[ii], ii, ii+1)
+            self.qp.set('lbx', self._hpipm_lbx[(ii+1)*self.ns:(ii+2)*self.ns], ii, ii+1) # TODO: Verify correct index
+            self.qp.set('ubx', self._hpipm_ubx[(ii+1)*self.ns:(ii+2)*self.ns], ii, ii+1)
+            self.qp.set('lbu', self._hpipm_lbu[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
+            self.qp.set('ubu', self._hpipm_ubu[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
+
+        # TODO: Implement slack variable penalty
+
+        self.qp_sol = hpipm_ocp_qp_sol(dim)
+
+        # set up solver arg
+        # TODO: Put parameters in param_dict...
+        #mode = 'speed_abs'
+        mode = 'speed'
+        #mode = 'balance'
+        #mode = 'robust'
+        # create and set default arg based on mode
+        arg = hpipm_ocp_qp_solver_arg(dim, mode)
+
+        # create and set default arg based on mode
+        arg.set('mu0', 1e4)
+        arg.set('iter_max', 30)
+        arg.set('tol_stat', 1e-4)
+        arg.set('tol_eq', 1e-5)
+        arg.set('tol_ineq', 1e-5)
+        arg.set('tol_comp', 1e-5)
+        arg.set('reg_prim', 1e-12)
+
+        # set up solver
+        self.solver = hpipm_ocp_qp_solver(dim, arg)
 
     def update_solver_settings(self, warm_start=True, check_termination=25, max_iter=4000, polish=True,
                                linsys_solver='qdldl'):
@@ -116,8 +169,9 @@ class NonlinearMPCController(Controller):
         :param linsys_solver: (string) Which linear system solver to use as part of OSQP algorithm
         :return:
         """
-        self.prob.update_settings(warm_start=warm_start, check_termination=check_termination, max_iter=max_iter,
-                                  polish=polish, linsys_solver=linsys_solver)
+        pass
+        #self.prob.update_settings(warm_start=warm_start, check_termination=check_termination, max_iter=max_iter,
+        #                          polish=polish, linsys_solver=linsys_solver)
 
     def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
         """
@@ -143,12 +197,12 @@ class NonlinearMPCController(Controller):
             self.u_init = self.cur_u.copy()
 
             # Update equality constraint matrices:
-            A_lst, B_lst = self.update_linearization_()
+            A_lst, B_lst, r_lst = self.update_linearization_()
 
             # Solve MPC Instance
-            self.update_objective_()
+            self.construct_linear_objective_()
             self.construct_constraint_vecs_(z, None)
-            self.update_constraint_matrix_data_(A_lst, B_lst)
+            self.update_qp_problem_(A_lst, B_lst, r_lst)
 
             self.solve_mpc_()
             dz = self.dz_flat.reshape(self.N + 1, self.nx)
@@ -174,10 +228,10 @@ class NonlinearMPCController(Controller):
         t0 = time.time()
         z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
         self.update_initial_guess_()
-        self.update_objective_()
-        A_lst, B_lst = self.update_linearization_()
-        self.update_constraint_matrix_data_(A_lst, B_lst)
+        self.construct_linear_objective_()
+        A_lst, B_lst, r_lst = self.update_linearization_()
         self.update_constraint_vecs_(z, t)
+        self.update_qp_problem_(A_lst, B_lst, r_lst)
         setup_time = time.time() - t0
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
@@ -204,145 +258,15 @@ class NonlinearMPCController(Controller):
         """
         return self.cur_u
 
-    def construct_objective_(self):
+    def construct_linear_objective_(self):
         """
         Construct MPC objective function
         :return:
         """
-        # Quadratic objective:
 
-        if not self.add_slack:
-            self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
-                                              self.C.T @ self.QN @ self.C,
-                                              sparse.kron(sparse.eye(self.N), self.R)], format='csc')
-
-        else:
-            self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C.T @ self.Q @ self.C),
-                                              self.C.T @ self.QN @ self.C,
-                                              sparse.kron(sparse.eye(self.N), self.R),
-                                              self.Q_slack], format='csc')
-
-        # Linear objective:
-        if not self.add_slack:
-            self._osqp_q = np.hstack(
-                [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
-                 self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
-                 (self.R @ self.u_init.T).flatten(order='F')])
-
-        else:
-            self._osqp_q = np.hstack(
-                [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
-                 self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
-                 (self.R @ self.u_init.T).flatten(order='F'),
-                 np.zeros(self.ns * (self.N))])
-
-    def update_objective_(self):
-        """
-        Construct MPC objective function
-        :return:
-        """
-        # TODO: Change with direct memory allocation:
-        self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
-            [(self.C.T @ self.Q @ (self.x_init[:, :-1] - self.xr.reshape(-1, 1))).flatten(order='F'),
-             self.C.T @ self.QN @ (self.x_init[:, -1] - self.xr),
-             (self.R @ self.u_init.T).flatten(order='F')])
-
-    def construct_constraint_matrix_(self, A_lst, B_lst):
-        """
-        Construct MPC constraint matrix
-        :param A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
-        :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
-        :return:
-        """
-        # Linear dynamics constraints:
-        A_dyn = sparse.vstack((sparse.csc_matrix((self.nx, (self.N + 1) * self.nx)),
-                               sparse.hstack(
-                                   (sparse.block_diag(A_lst), sparse.csc_matrix((self.N * self.nx, self.nx))))))
-        Ax = -sparse.eye((self.N + 1) * self.nx) + A_dyn
-        Bu = sparse.vstack((sparse.csc_matrix((self.nx, self.N * self.nu)),
-                            sparse.block_diag(B_lst)))
-
-        if not self.add_slack:
-            # Input constraints:
-            Aineq_u = sparse.hstack(
-                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)), sparse.eye(self.N * self.nu)])
-
-            # State constraints:
-            Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N + 1), self.C),
-                                     sparse.csc_matrix(((self.N + 1) * self.ns, self.N * self.nu))])
-
-            Aeq = sparse.hstack([Ax, Bu])
-        else:
-            # Input constraints:
-            Aineq_u = sparse.hstack(
-                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)),
-                 sparse.eye(self.N * self.nu),
-                 sparse.csc_matrix((self.nu * self.N, self.ns * self.N))])
-
-            # State constraints:
-            Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N + 1), self.C),
-                                     sparse.csc_matrix(((self.N + 1) * self.ns, self.N * self.nu)),
-                                     sparse.vstack([sparse.eye(self.ns * self.N),
-                                                    sparse.csc_matrix((self.ns, self.ns * self.N))])])
-
-            Aeq = sparse.hstack([Ax, Bu, sparse.csc_matrix((self.nx * (self.N + 1), self.ns * (self.N)))])
-
-        self._osqp_A = sparse.vstack([Aeq, Aineq_u, Aineq_x], format='csc')
-
-    def construct_constraint_matrix_data_(self, A_lst, B_lst):
-        """
-        Manually build csc_matrix.data array
-        :param A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
-        :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
-        :return:
-        """
-        C_data = [np.atleast_1d(self.C[np.nonzero(self.C[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
-
-        # State variables:
-        data = []
-        A_inds = []
-        start_ind_A = 1
-        for t in range(self.N):
-            for i in range(self.nx):
-                data.append(np.hstack((-np.ones(1), A_lst[t][:, i], np.array(C_data[i]))))
-                A_inds.append(np.arange(start_ind_A, start_ind_A + self.nx))
-                start_ind_A += self.nx + 1 + len(C_data[i])
-
-        for i in range(self.nx):
-            data.append(np.hstack((-np.ones(1), np.array(C_data[i]))))
-
-        # Input variables:
-        B_inds = []
-        start_ind_B = start_ind_A + self.nx + np.nonzero(self.C)[0].size - 1
-        for t in range(self.N):
-            for i in range(self.nu):
-                data.append(np.hstack((B_lst[t][:, i], np.ones(1))))
-                B_inds.append(np.arange(start_ind_B, start_ind_B + self.nx))
-                start_ind_B += self.nx + 1
-
-        # Slack variables:
-        for t in range(self.N):
-            for i in range(self.ns):
-                data.append(np.ones(1))
-
-        flat_data = []
-        for arr in data:
-            for d in arr:
-                flat_data.append(d)
-
-        self._osqp_A_data = np.array(flat_data)
-        self._osqp_A_data_A_inds = np.array(A_inds).flatten().tolist()
-        self._osqp_A_data_B_inds = np.array(B_inds).flatten().tolist()
-
-    def update_constraint_matrix_data_(self, A_lst, B_lst):
-        """
-        Manually update csc_matrix.data array
-        :param A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
-        :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
-        :return:
-        """
-        self._osqp_A_data[self._osqp_A_data_A_inds] = np.hstack(A_lst).flatten(order='F')
-        self._osqp_A_data[self._osqp_A_data_B_inds] = np.hstack(B_lst).flatten(order='F')
+        self._hpipm_q = (self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F')
+        self._hpipm_qN = self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr)
+        self._hpipm_r = (self.R @ self.u_init.T).flatten(order='F')
 
     def construct_constraint_vecs_(self, z, t):
         """
@@ -351,33 +275,26 @@ class NonlinearMPCController(Controller):
         :param t: (float) Current time (for time-dependent dynamics)
         :return:
         """
-        self.n_opt_x = self.nx * (self.N + 1)
-        self.n_opt_x_u = self.nx * (self.N + 1) + self.nu * self.N
-
-        dz0 = z - self.z_init[0, :]
-        leq = np.hstack([-dz0, -self.r_vec])
-        ueq = leq
 
         # Input constraints:
         u_init_flat = self.u_init.flatten()
         self.umin_tiled = np.tile(self.umin, self.N)
         self.umax_tiled = np.tile(self.umax, self.N)
-        lineq_u = self.umin_tiled - u_init_flat
-        uineq_u = self.umax_tiled - u_init_flat
+        self._hpipm_lbu = self.umin_tiled - u_init_flat
+        self._hpipm_ubu = self.umax_tiled - u_init_flat
 
         # State constraints:
         x_init_flat = self.x_init.flatten(order='F')
+        dz_0 = z - self.z_init[0, :]
         self.xmin_tiled = np.tile(self.xmin, self.N + 1)
         self.xmax_tiled = np.tile(self.xmax, self.N + 1)
-        lineq_x = self.xmin_tiled - x_init_flat
-        uineq_x = self.xmax_tiled - x_init_flat
+        self._hpipm_lbx = np.hstack((dz_0, self.xmin_tiled - x_init_flat))
+        self._hpipm_ubx = np.hstack((dz_0, self.xmax_tiled - x_init_flat))
 
         if self.terminal_constraint:
-            lineq_x[-self.ns:] = self.xr - self.x_init[:, -1]
-            uineq_x[-self.ns:] = lineq_x[-self.ns:]
-
-        self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
-        self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
+            pass  #TODO: Implement terminal constraints
+            #lineq_x[-self.ns:] = self.xr - self.x_init[:, -1]
+            #uineq_x[-self.ns:] = lineq_x[-self.ns:]
 
     def update_constraint_vecs_(self, z, t):
         """
@@ -386,33 +303,43 @@ class NonlinearMPCController(Controller):
         :param t: (float) Current time (for time-dependent dynamics)
         :return:
         """
-        # Equality constraints:
-        self._osqp_l[:self.nx] = -(z - self.z_init[0, :])
-        self._osqp_l[self.nx:self.nx * (self.N + 1)] = -self.r_vec
-
-        self._osqp_u[:self.nx * (self.N + 1)] = self._osqp_l[:self.nx * (self.N + 1)]
-
         # Input constraints:
-        self._osqp_l[self.n_opt_x:self.n_opt_x_u] = self.umin_tiled - self.u_init_flat
-        self._osqp_u[self.n_opt_x:self.n_opt_x_u] = self.umax_tiled - self.u_init_flat
+        self._hpipm_lbu = self.umin_tiled - self.u_init_flat
+        self._hpipm_ubu = self.umax_tiled - self.u_init_flat
 
         # State constraints:
-        self._osqp_l[self.n_opt_x_u:] = self.xmin_tiled - self.x_init_flat
-        self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - self.x_init_flat
+        self._hpipm_lbx = self.xmin_tiled - self.x_init_flat
+        self._hpipm_ubx = self.xmax_tiled - self.x_init_flat
 
         if self.terminal_constraint:
-            self._osqp_l[-self.ns:] = self.xr - self.x_init_flat[-self.ns:]
-            self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
+            pass  #TODO: Implement terminal constraints
+            #self._osqp_l[-self.ns:] = self.xr - self.x_init_flat[-self.ns:]
+            #self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
+
+    def update_qp_problem_(self, A_lst, B_lst, r_lst):
+        self.qp.set('lbx', self._hpipm_lbx[self.ns:self.ns], 0)  # Initial state
+        self.qp.set('ubx', self._hpipm_ubx[self.ns:self.ns], 0)  # Initial state
+        for ii in range(self.N-1):
+            self.qp.set('q', self._hpipm_q[ii*self.ns:(ii+1)*self.ns], ii, ii+1)
+            self.qp.set('r', self._hpipm_r[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
+
+            self.qp.set('A', A_lst[ii], ii, ii+1) #TODO: Verify that method works ->
+            self.qp.set('B', B_lst[ii], ii, ii+1)
+            self.qp.set('b', r_lst[ii], ii, ii+1)
+            self.qp.set('lbx', self._hpipm_lbx[(ii+1)*self.ns:(ii+2)*self.ns], ii, ii+1) # TODO: Verify correct index
+            self.qp.set('ubx', self._hpipm_ubx[(ii+1)*self.ns:(ii+2)*self.ns], ii, ii+1)
+            self.qp.set('lbu', self._hpipm_lbu[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
+            self.qp.set('ubu', self._hpipm_ubu[ii*self.nu:(ii+1)*self.nu], ii, ii+1)
 
     def solve_mpc_(self):
         """
         Solve the MPC sub-problem
         :return:
         """
-        self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
-        self.res = self.prob.solve()
-        self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
-        self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
+
+        self.solver.solve(self.qp, self.qp_sol)
+        self.dz_flat = self.qp_sol.get('x', 0, self.N)
+        self.du_flat = self.qp_sol.get('u', 0, self.N)
 
     def update_initial_guess_(self):
         """
@@ -453,6 +380,7 @@ class NonlinearMPCController(Controller):
                         zip(self.z_init[:-1, :], self.z_init[1:, :], self.u_init)]
         A_lst = [lin_mdl[0] for lin_mdl in lin_mdl_list]
         B_lst = [lin_mdl[1] for lin_mdl in lin_mdl_list]
-        self.r_vec = np.array([lin_mdl[2] for lin_mdl in lin_mdl_list]).flatten()
+        r_lst = [lin_mdl[2] for lin_mdl in lin_mdl_list]
+        # TODO: Optimize, avoid 4x loop through all steps..
 
-        return A_lst, B_lst
+        return A_lst, B_lst, r_lst
