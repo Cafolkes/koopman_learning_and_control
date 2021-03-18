@@ -69,6 +69,8 @@ class NonlinearMPCController(Controller):
         self.add_slack = add_slack
         self.Q_slack = q_slack * sparse.eye(self.ns * (self.N))
 
+        self.setup_time = []
+        self.qp_time = []
         self.comp_time = []
         self.x_iter = []
         self.u_iter = []
@@ -101,7 +103,7 @@ class NonlinearMPCController(Controller):
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
         self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
-                        warm_start=True, verbose=False, polish=True, check_termination=25)
+                        warm_start=True, verbose=False, polish=True, check_termination=25, eps_abs=1e-6, eps_rel=1e-6)
 
     def update_solver_settings(self, warm_start=True, check_termination=25, max_iter=4000, polish=True,
                                linsys_solver='qdldl'):
@@ -176,12 +178,15 @@ class NonlinearMPCController(Controller):
         A_lst, B_lst = self.update_linearization_()
         self.update_constraint_matrix_data_(A_lst, B_lst)
         self.update_constraint_vecs_(z, t)
-
+        setup_time = time.time() - t0
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
         self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
         self.u_init_flat = self.u_init_flat + self.du_flat
+
         self.comp_time.append(time.time() - t0)
+        self.setup_time.append(setup_time)
+        self.qp_time.append(self.comp_time[-1] - self.setup_time[-1])
 
         return self.cur_u[0, :]
 
