@@ -135,13 +135,14 @@ traj_duration = 2
 traj_length = int(traj_duration/dt)
 
 # Design trajectory:
-x0 = np.array([0., 0., 0., 0.])
-set_pt = np.array([5., 3., 0., 0.])
+x0 = np.array([1., 1., 0., 0.])
+set_pt = np.array([0., 0., 0., 0.])
 term_constraint = False
 
 # Define initial solution for SQP algorithm:
-x_init = np.linspace(x0, set_pt, int(traj_length)+1)
-u_init = np.ones((m,traj_length)).T
+#x_init = np.linspace(x0, set_pt, int(traj_length)+1)
+x_init = np.zeros((traj_length+1, n))
+u_init = np.zeros((traj_length, m))
 
 
 # # Construct Koopman bilinear form of the system
@@ -268,21 +269,6 @@ z0 = phi_fun(x0.reshape((1,-1)))
 xs, us = finite_dim_koop_sys.simulate(x0, ol_controller, np.arange(0,201)*dt)
 zs_koop, us_koop = koop_bilinear_sys.simulate(z0, ol_controller, np.arange(0,201)*dt)
 xs_koop = np.dot(C, zs_koop.T)
-
-_, axs = subplots(3, 2, figsize=(15, 6))
-ylabels = ['$q_1$', '$q_2$', '$\\dot{q}_1$', '$\\dot{q}_2$', '$u_1$', '$u_2$']
-
-for ax, data_fb, data_koop, ylabel in zip(axs.flatten(), np.vstack((xs[:-1,:].T, us.T)), np.vstack((xs_koop[:,:-1], us_koop.T)), ylabels):
-    ax.plot(np.arange(0,200)*dt, data_fb, linewidth=3, label='True system')
-    ax.plot(np.arange(0,200)*dt, data_koop, linewidth=3, label='KCT')
-    ax.set_ylabel(ylabel, fontsize=16)
-    ax.grid()
-    ax.set_xlabel('$t$ (sec)', fontsize=16)
-    ax.legend()
-    
-tight_layout()
-show()
-
 
 # # Design model predictive controllers
 
@@ -533,11 +519,8 @@ controller_nmpc_cl.comp_time, controller_nmpc_cl.setup_time, controller_nmpc_cl.
 
 
 # In[15]:
-
-
 controller_knmpc_cl.update_solver_settings(max_iter=10, polish=False)
 controller_nmpc_cl.update_solver_settings(max_iter=10, polish=False)
-
 
 # #### Simulate designed trajectories closed-loop
 
@@ -547,11 +530,9 @@ controller_nmpc_cl.update_solver_settings(max_iter=10, polish=False)
 xs_lmpc_cl, us_lmpc_cl = finite_dim_koop_sys.simulate(x0, controller_lmpc_cl, t_eval)
 xs_lmpc_cl, us_lmpc_cl = xs_lmpc_cl.T, us_lmpc_cl.T
 
-controller_knmpc_cl.comp_time = []
 xs_knmpc_cl, us_knmpc_cl = finite_dim_koop_sys.simulate(x0, controller_knmpc_cl, t_eval)
 xs_knmpc_cl, us_knmpc_cl = xs_knmpc_cl.T, us_knmpc_cl.T
 
-controller_nmpc_cl.comp_time = []
 xs_nmpc_cl, us_nmpc_cl = finite_dim_koop_sys.simulate(x0, controller_nmpc_cl, t_eval)
 xs_nmpc_cl, us_nmpc_cl = xs_nmpc_cl.T, us_nmpc_cl.T
 
