@@ -1,4 +1,6 @@
 import numpy as np
+import os
+import importlib
 
 from koopman_core.controllers import NonlinearMPCController
 
@@ -9,14 +11,16 @@ class BilinearMPCController(NonlinearMPCController):
     Quadratic programs are solved using OSQP.
     """
 
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings, const_offset=None,
                  terminal_constraint=False, add_slack=False, q_slack=1e-4):
-        NonlinearMPCController.__init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
+
+        super(BilinearMPCController, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
                                         const_offset=const_offset,
                                         terminal_constraint=terminal_constraint,
                                         add_slack=add_slack,
                                         q_slack=q_slack)
 
+        self.embed_pkg_str = 'knmpc_' + str(self.nx) + '_' + str(self.nu) + '_' + str(self.N)
         self.A_flat = self.dynamics_object.A.flatten(order='F')
         self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B])
         self.B_arr = np.vstack(self.dynamics_object.B).T

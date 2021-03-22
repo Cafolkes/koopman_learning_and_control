@@ -1,8 +1,9 @@
 import time
-
+import os
 import numpy as np
 import osqp
 from scipy import sparse
+import importlib
 
 from core.controllers.controller import Controller
 from koopman_core.dynamics import BilinearLiftedDynamics
@@ -15,7 +16,7 @@ class NonlinearMPCController(Controller):
     Quadratic programs are solved using OSQP.
     """
 
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, const_offset=None,
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings, const_offset=None,
                  terminal_constraint=False, add_slack=False, q_slack=1e4):
         """
         Initialize the nonlinear mpc class.
@@ -37,6 +38,7 @@ class NonlinearMPCController(Controller):
         """
 
         Controller.__init__(self, dynamics)
+
         self.dynamics_object = dynamics
         self.nx = self.dynamics_object.n
         self.nu = self.dynamics_object.m
@@ -69,6 +71,11 @@ class NonlinearMPCController(Controller):
         self.add_slack = add_slack
         self.Q_slack = q_slack * sparse.eye(self.ns * (self.N))
 
+        self.solver_settings = solver_settings
+        self.embed_pkg_str = 'nmpc_' + str(self.nx) + '_' + str(self.nu) + '_' + str(self.N)
+
+        self.prep_time = []
+        self.qp_time = []
         self.comp_time = []
         self.x_iter = []
         self.u_iter = []
@@ -86,7 +93,7 @@ class NonlinearMPCController(Controller):
         self.x_init = self.C @ z_init.T
         self.u_init_flat = self.u_init.flatten()
         self.x_init_flat = self.x_init.flatten(order='F')
-        # self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
+        self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
 
         A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
         B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
@@ -100,22 +107,35 @@ class NonlinearMPCController(Controller):
 
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
-        self.prob.setup(self._osqp_P, self._osqp_q, self._osqp_A, self._osqp_l, self._osqp_u,
-                        warm_start=True, verbose=False, polish=True, check_termination=25)
+        self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=False,
+                        warm_start=self.solver_settings['warm_start'],
+                        polish=self.solver_settings['polish'],
+                        check_termination=self.solver_settings['check_termination'],
+                        eps_abs=self.solver_settings['eps_abs'],
+                        eps_rel=self.solver_settings['eps_rel'],
+                        linsys_solver=self.solver_settings['linsys_solver'],
+                        adaptive_rho=self.solver_settings['adaptive_rho'])
 
-    def update_solver_settings(self, warm_start=True, check_termination=25, max_iter=4000, polish=True,
-                               linsys_solver='qdldl'):
+        if self.solver_settings['gen_embedded_ctrl']:
+            self.construct_embedded_controller()
+
+    def update_solver_settings(self, solver_settings):
         """
         Update the OSQP solver settings (see OSQP documentation for detailed description of each setting)
         :param warm_start: (boolean) Warm start the solver with solution from previous timestep
-        :param check_termination: (int) Frequency of checking wheter the solution has converged (number of iterations)
+        :param check_termination: (int) Frequency of checking whether the solution has converged (number of iterations)
         :param max_iter: (int) Maximum iterations allowed by the solver
         :param polish: (boolean) Execute polish step at the end of solve
         :param linsys_solver: (string) Which linear system solver to use as part of OSQP algorithm
         :return:
         """
-        self.prob.update_settings(warm_start=warm_start, check_termination=check_termination, max_iter=max_iter,
-                                  polish=polish, linsys_solver=linsys_solver)
+        self.solver_settings = solver_settings
+        self.prob.update_settings(warm_start=self.solver_settings['warm_start'],
+                        polish=self.solver_settings['polish'],
+                        check_termination=self.solver_settings['check_termination'],
+                        eps_abs=self.solver_settings['eps_abs'],
+                        eps_rel=self.solver_settings['eps_rel'],
+                        linsys_solver=self.solver_settings['linsys_solver'])
 
     def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
         """
@@ -147,6 +167,7 @@ class NonlinearMPCController(Controller):
             self.update_objective_()
             self.construct_constraint_vecs_(z, None)
             self.update_constraint_matrix_data_(A_lst, B_lst)
+            t_prep = time.time() - t0
 
             self.solve_mpc_()
             dz = self.dz_flat.reshape(self.N + 1, self.nx)
@@ -159,6 +180,8 @@ class NonlinearMPCController(Controller):
 
             iter += 1
             self.comp_time.append(time.time() - t0)
+            self.prep_time.append(t_prep)
+            self.qp_time.append(self.comp_time[-1] - t_prep)
             self.x_iter.append(self.cur_z.copy().T)
             self.u_iter.append(self.cur_u.copy().T)
 
@@ -176,28 +199,17 @@ class NonlinearMPCController(Controller):
         A_lst, B_lst = self.update_linearization_()
         self.update_constraint_matrix_data_(A_lst, B_lst)
         self.update_constraint_vecs_(z, t)
+        t_prep = time.time() - t0
 
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
         self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
         self.u_init_flat = self.u_init_flat + self.du_flat
         self.comp_time.append(time.time() - t0)
+        self.prep_time.append(t_prep)
+        self.qp_time.append(self.comp_time[-1] - t_prep)
 
         return self.cur_u[0, :]
-
-    def get_state_prediction(self):
-        """
-        Get the state prediction from the MPC problem
-        :return: Z (np.array) current state prediction
-        """
-        return self.cur_z
-
-    def get_control_prediction(self):
-        """
-        Get the control prediction from the MPC problem
-        :return: U (np.array) current control prediction
-        """
-        return self.cur_u
 
     def construct_objective_(self):
         """
@@ -404,10 +416,20 @@ class NonlinearMPCController(Controller):
         Solve the MPC sub-problem
         :return:
         """
-        self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
-        self.res = self.prob.solve()
-        self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
-        self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
+        if self.solver_settings['gen_embedded_ctrl']:
+            self.prob_embed.update_lin_cost(self._osqp_q)
+            self.prob_embed.update_lower_bound(self._osqp_l)
+            self.prob_embed.update_upper_bound(self._osqp_u)
+            self.prob_embed.update_A(self._osqp_A_data, None, 0)
+            self.res = self.prob_embed.solve()
+            self.dz_flat = self.res[0][:(self.N + 1) * self.nx]
+            self.du_flat = self.res[0][(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
+
+        else:
+            self.prob.update(q=self._osqp_q, Ax=self._osqp_A_data, l=self._osqp_l, u=self._osqp_u)
+            self.res = self.prob.solve()
+            self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
+            self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
 
     def update_initial_guess_(self):
         """
@@ -430,13 +452,13 @@ class NonlinearMPCController(Controller):
         self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
-        # du_new = self.du_flat[-self.nu:]
-        # dz_last = self.dz_flat[-self.nx:]
-        # dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
-        # self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
-        # self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
-        # self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
-        # self.warm_start[-self.nu:] = du_new
+        #du_new = self.du_flat[-self.nu:]
+        #dz_last = self.dz_flat[-self.nx:]
+        #dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
+        #self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
+        #self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
+        #self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
+        #self.warm_start[-self.nu:] = du_new
 
     def update_linearization_(self):
         """
@@ -451,3 +473,25 @@ class NonlinearMPCController(Controller):
         self.r_vec = np.array([lin_mdl[2] for lin_mdl in lin_mdl_list]).flatten()
 
         return A_lst, B_lst
+
+    def construct_embedded_controller(self):
+        try:
+            self.prob_embed = importlib.import_module(self.embed_pkg_str)
+        except:
+            file_path = os.path.dirname(os.path.realpath(__file__)) + '/embedded_controllers/' + self.embed_pkg_str
+            self.prob.codegen(file_path, parameters='matrices', python_ext_name=self.embed_pkg_str, force_rewrite=True, LONG=False)
+            self.prob_embed = importlib.import_module(self.embed_pkg_str)
+
+    def get_state_prediction(self):
+        """
+        Get the state prediction from the MPC problem
+        :return: Z (np.array) current state prediction
+        """
+        return self.cur_z
+
+    def get_control_prediction(self):
+        """
+        Get the control prediction from the MPC problem
+        :return: U (np.array) current control prediction
+        """
+        return self.cur_u
