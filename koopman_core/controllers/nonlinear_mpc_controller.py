@@ -107,9 +107,10 @@ class NonlinearMPCController(Controller):
 
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
-        self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=True,
+        self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=False,
                         warm_start=self.solver_settings['warm_start'],
                         polish=self.solver_settings['polish'],
+                        polish_refine_iter=self.solver_settings['polish_refine_iter'],
                         check_termination=self.solver_settings['check_termination'],
                         eps_abs=self.solver_settings['eps_abs'],
                         eps_rel=self.solver_settings['eps_rel'],
@@ -134,6 +135,7 @@ class NonlinearMPCController(Controller):
         self.solver_settings = solver_settings
         self.prob.update_settings(warm_start=self.solver_settings['warm_start'],
                         polish=self.solver_settings['polish'],
+                        polish_refine_iter=self.solver_settings['polish_refine_iter'],
                         check_termination=self.solver_settings['check_termination'],
                         eps_abs=self.solver_settings['eps_abs'],
                         eps_rel=self.solver_settings['eps_rel'],
@@ -205,7 +207,6 @@ class NonlinearMPCController(Controller):
         self.update_constraint_vecs_(z, t)
         t_prep = time.time() - t0
 
-        #self.prob.warm_start(x=self.warm_start)
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
         self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
