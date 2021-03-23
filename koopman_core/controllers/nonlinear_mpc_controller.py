@@ -59,7 +59,7 @@ class NonlinearMPCController(Controller):
         self.umax = umax
 
         if const_offset is None:
-            self.const_offset = np.zeros(self.nu)
+            self.const_offset = np.zeros((self.nu,1))
         else:
             self.const_offset = const_offset
 
@@ -107,12 +107,14 @@ class NonlinearMPCController(Controller):
 
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
-        self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=False,
+        self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=True,
                         warm_start=self.solver_settings['warm_start'],
                         polish=self.solver_settings['polish'],
                         check_termination=self.solver_settings['check_termination'],
                         eps_abs=self.solver_settings['eps_abs'],
                         eps_rel=self.solver_settings['eps_rel'],
+                        eps_prim_inf=self.solver_settings['eps_prim_inf'],
+                        eps_dual_inf=self.solver_settings['eps_dual_inf'],
                         linsys_solver=self.solver_settings['linsys_solver'],
                         adaptive_rho=self.solver_settings['adaptive_rho'])
 
@@ -135,6 +137,8 @@ class NonlinearMPCController(Controller):
                         check_termination=self.solver_settings['check_termination'],
                         eps_abs=self.solver_settings['eps_abs'],
                         eps_rel=self.solver_settings['eps_rel'],
+                        eps_prim_inf=self.solver_settings['eps_prim_inf'],
+                        eps_dual_inf=self.solver_settings['eps_dual_inf'],
                         linsys_solver=self.solver_settings['linsys_solver'])
 
     def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
@@ -201,6 +205,7 @@ class NonlinearMPCController(Controller):
         self.update_constraint_vecs_(z, t)
         t_prep = time.time() - t0
 
+        #self.prob.warm_start(x=self.warm_start)
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
         self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
@@ -234,13 +239,13 @@ class NonlinearMPCController(Controller):
             self._osqp_q = np.hstack(
                 [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
                  self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
-                 (self.R @ self.u_init.T).flatten(order='F')])
+                 (self.R @ (self.u_init.T + self.const_offset)).flatten(order='F')])
 
         else:
             self._osqp_q = np.hstack(
                 [(self.C.T @ self.Q @ (self.C @ self.z_init[:-1, :].T - self.xr.reshape(-1, 1))).flatten(order='F'),
                  self.C.T @ self.QN @ (self.C @ self.z_init[-1, :] - self.xr),
-                 (self.R @ self.u_init.T).flatten(order='F'),
+                 (self.R @ (self.u_init.T + self.const_offset)).flatten(order='F'),
                  np.zeros(self.ns * (self.N))])
 
     def update_objective_(self):
@@ -252,7 +257,7 @@ class NonlinearMPCController(Controller):
         self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
             [(self.C.T @ self.Q @ (self.x_init[:, :-1] - self.xr.reshape(-1, 1))).flatten(order='F'),
              self.C.T @ self.QN @ (self.x_init[:, -1] - self.xr),
-             (self.R @ self.u_init.T).flatten(order='F')])
+             (self.R @ (self.u_init.T + self.const_offset)).flatten(order='F')])
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         """
@@ -263,8 +268,8 @@ class NonlinearMPCController(Controller):
         """
         # Linear dynamics constraints:
         A_dyn = sparse.vstack((sparse.csc_matrix((self.nx, (self.N + 1) * self.nx)),
-                               sparse.hstack(
-                                   (sparse.block_diag(A_lst), sparse.csc_matrix((self.N * self.nx, self.nx))))))
+                               sparse.hstack((
+                                   sparse.block_diag(A_lst), sparse.csc_matrix((self.N * self.nx, self.nx))))))
         Ax = -sparse.eye((self.N + 1) * self.nx) + A_dyn
         Bu = sparse.vstack((sparse.csc_matrix((self.nx, self.N * self.nu)),
                             sparse.block_diag(B_lst)))
@@ -452,13 +457,13 @@ class NonlinearMPCController(Controller):
         self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
-        #du_new = self.du_flat[-self.nu:]
-        #dz_last = self.dz_flat[-self.nx:]
-        #dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
-        #self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
-        #self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
-        #self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
-        #self.warm_start[-self.nu:] = du_new
+        du_new = self.du_flat[-self.nu:]
+        dz_last = self.dz_flat[-self.nx:]
+        dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
+        self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
+        self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
+        self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
+        self.warm_start[-self.nu:] = du_new
 
     def update_linearization_(self):
         """
