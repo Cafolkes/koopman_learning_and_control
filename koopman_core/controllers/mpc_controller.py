@@ -80,7 +80,7 @@ class MPCController(Controller):
         # - quadratic objective
         CQC = sparse.csc_matrix(np.transpose(self.C).dot(self.Q.dot(self.C)))
         CQNC = sparse.csc_matrix(np.transpose(self.C).dot(self.QN.dot(self.C)))
-        Q_slack = 1e4*sparse.eye(self.ns*(self.N+1))
+        Q_slack = 1e3*sparse.eye(self.ns*(self.N+1))
 
         if not self.add_slack:
             self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), CQC), CQNC,

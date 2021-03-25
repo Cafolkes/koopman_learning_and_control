@@ -185,23 +185,29 @@ Q_mpc = sc.sparse.diags([0,0,0,0,0,0])                              # State pena
 QN_mpc = sc.sparse.diags([1e5,1e5,1e5,1e5,1e5,1e5])                 # Final state penalty matrix, trajectory generation
 R_mpc = sc.sparse.eye(m)                                            # Actuation penalty matrix, trajectory generation
 ctrl_offset = np.array([[hover_thrust], [hover_thrust]])            # Control offset, learned models (center around hover)
+add_slack_trajgen = False
+q_slack_trajgen = 1e3
 
-x0_cl = np.array([0., 0., 0.1, 0., 0., 0.])                          # Initial value, closed loop trajectory
-set_pt_cl = np.array([2., 0.5, 0., 0., 0., 0.])                    # Desired final value, closed loop trajectory
-xmax_trajgen = np.array([2, 2, np.pi/3, 1.,1.,1.])                  # State constraints, trajectory generation
+x0_cl = np.array([-0.8, 0.1, 0.1, -0.3, -0.2, 0.15])                          # Initial value, closed loop trajectory
+set_pt_cl = np.array([1.9, 1.2, 0., 0., 0., 0.])                    # Desired final value, closed loop trajectory
+xmax_trajgen = np.array([2, 2, np.pi/3, 2.,2.,2.])                  # State constraints, trajectory generation
 xmin_trajgen = -xmax
 term_constraint = False
 x_init = np.linspace(x0_cl, set_pt_cl, int(traj_length_trajgen)+1)  # Initial state guess for SQP-algorithm
 u_init = np.zeros((m,traj_length_trajgen)).T                        # Initial control guess for SQP-algorithm
 max_iter_sqp = 500
+add_slack_cl = True
+q_slack_cl = 1e3
+
 
 # Closed loop control performance evaluation parameters:
-Q_mpc_cl = sc.sparse.diags([1e4,1e4,1e4,1e3,1e3,1e3])
+Q_mpc_cl = sc.sparse.diags([1e3,1e3,1e3,1e2,1e2,1e2])
 QN_mpc_cl = Q_mpc_cl
 R_mpc_cl = sc.sparse.eye(m)
 traj_duration_cl = 0.5
 traj_length_cl = int(traj_duration_cl/dt)
 t_eval_cl = np.arange(250)*dt
+
 
 solver_settings_cl = copy.deepcopy(solver_settings)
 solver_settings_cl['polish'] = False
@@ -211,7 +217,6 @@ solver_settings_cl['eps_abs'] = 1e-2
 solver_settings_cl['eps_rel'] = 1e-2
 solver_settings_cl['eps_prim_inf'] = 1e-3
 solver_settings_cl['eps_dual_inf'] = 1e-3
-
 
 #==================================================== COLLECT DATA ====================================================:
 if learn_models:
@@ -422,7 +427,7 @@ plt.savefig(folder_plots + 'planar_quad_prediction.pdf', format='pdf', dpi=2400,
 #===================================== EVALUATE TRAJECTORY GENERATION PERFORMANCE ====================================:
 # Generate trajectory with DMD model:
 controller_dmd = MPCController(sys_dmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen, Q_mpc, R_mpc,
-                               QN_mpc, set_pt_cl, terminal_constraint=term_constraint,
+                               QN_mpc, set_pt_cl, add_slack=add_slack_trajgen, terminal_constraint=term_constraint,
                                const_offset=ctrl_offset.squeeze())
 controller_dmd.eval(x0_cl, 0)
 xr_dmd = controller_dmd.parse_result()
@@ -430,7 +435,7 @@ ur_dmd = controller_dmd.get_control_prediction() + hover_thrust
 
 # Generate trajectory with EDMD model:
 controller_edmd = MPCController(sys_edmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen, Q_mpc, R_mpc,
-                                QN_mpc, set_pt_cl, terminal_constraint=term_constraint,
+                                QN_mpc, set_pt_cl, add_slack=add_slack_trajgen, terminal_constraint=term_constraint,
                                 const_offset=ctrl_offset.squeeze())
 controller_edmd.eval(x0_cl, 0)
 xr_edmd = sys_edmd.C@controller_edmd.parse_result()
@@ -438,8 +443,8 @@ ur_edmd = controller_edmd.get_control_prediction() + hover_thrust
 
 # Generate trajectory with bEDMD model:
 controller_bedmd = BilinearMPCController(sys_bedmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen,
-                                         Q_mpc, R_mpc, QN_mpc, set_pt_cl, solver_settings,
-                                         terminal_constraint=term_constraint, const_offset=ctrl_offset)
+                                         Q_mpc, R_mpc, QN_mpc, set_pt_cl, solver_settings, add_slack=add_slack_trajgen,
+                                         q_slack=q_slack_trajgen, terminal_constraint=term_constraint, const_offset=ctrl_offset)
 z0_cl = sys_bedmd.basis(x0_cl.reshape((1,-1))).squeeze()
 z_init = sys_bedmd.basis(x_init)
 controller_bedmd.construct_controller(z_init, u_init)
@@ -451,7 +456,7 @@ ur_bedmd = controller_bedmd.get_control_prediction().T + hover_thrust
 quadrotor_d = PlanarQuadrotorForceInputDiscrete(mass, inertia, prop_arm, g=gravity, dt=dt)
 controller_nmpc = NonlinearMPCController(quadrotor_d, traj_length_trajgen, dt, umin+hover_thrust, umax+hover_thrust,
                                          xmin_trajgen, xmax_trajgen, Q_mpc, R_mpc, QN_mpc, set_pt_cl, solver_settings,
-                                         terminal_constraint=term_constraint)
+                                         add_slack=add_slack_trajgen, q_slack=q_slack_trajgen, terminal_constraint=term_constraint)
 controller_nmpc.construct_controller(x_init, u_init+hover_thrust)
 controller_nmpc.solve_to_convergence(x0_cl, 0., x_init, u_init + ctrl_offset.reshape(1,-1), max_iter=max_iter_sqp)
 xr_nmpc = controller_nmpc.get_state_prediction().T
@@ -619,7 +624,7 @@ controller_edmd_cl = PerturbedController(sys_edmd,controller_edmd_cl,0.,const_of
 # Define and initialize controller based on bEDMD model:
 controller_bedmd_cl = BilinearMPCController(sys_bedmd, traj_length_cl, dt, umin, umax, xmin_trajgen, xmax_trajgen, Q_mpc_cl,
                                             R_mpc_cl, QN_mpc_cl, set_pt_cl, solver_settings, add_slack=True,
-                                            const_offset=ctrl_offset)
+                                            q_slack=q_slack_cl, const_offset=ctrl_offset)
 controller_bedmd_cl.construct_controller(controller_bedmd.cur_z[:traj_length_cl+1,:], controller_bedmd.cur_u[:traj_length_cl,:])
 controller_bedmd_cl.solve_to_convergence(z0_cl, 0., controller_bedmd.cur_z[:traj_length_cl+1,:], controller_bedmd.cur_u[:traj_length_cl,:],
                                          max_iter=max_iter_sqp)
@@ -630,7 +635,7 @@ controller_bedmd_cl.nom_controller.update_solver_settings(solver_settings_cl)
 # Define and initialize controller based on full model knowledge (benchmark):
 controller_nmpc_cl = NonlinearMPCController(quadrotor_d, traj_length_cl, dt, umin+hover_thrust, umax+hover_thrust,
                                             xmin_trajgen, xmax_trajgen, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt_cl,
-                                            solver_settings, add_slack=True)
+                                            solver_settings, add_slack=True, q_slack=q_slack_cl)
 controller_nmpc_cl.construct_controller(controller_nmpc.cur_z[:traj_length_cl+1,:], controller_nmpc.cur_u[:traj_length_cl,:])
 controller_nmpc_cl.solve_to_convergence(x0_cl, 0., controller_nmpc.cur_z[:traj_length_cl+1,:], controller_nmpc.cur_u[:traj_length_cl,:],
                                         max_iter=max_iter_sqp)
@@ -672,7 +677,7 @@ for ii in range(5):
         plt.xlabel('Time (sec)')
         if subplot_inds[ii]==1:
             plt.legend(loc='upper left', frameon=False)
-            plt.ylim(-0.15,2)
+            #plt.ylim(-0.15,2)
     else:
         bx = plt.subplot(2,4,subplot_inds[ii])
         plt.plot(t_eval_cl[:-1],us_dmd_cl[ind,:], color=colors[0], label='DMD MPC')
@@ -700,11 +705,11 @@ ax = plt.subplot(1,1,1, frameon=False)
 plt.plot(xs_bedmd_cl[0,:], xs_bedmd_cl[1,:], color=colors[2], label='Koopman NMPC closed loop trajectory with quadrotor orientation sampled at 2 hz')
 plt.xlabel('y (m)')
 plt.ylabel('z (m)')
-plt.ylim(-0.1, xs_bedmd[1,-1]+0.45)
-plt.legend(loc='upper left',frameon=False)
+plt.ylim(x0_cl[1]-0.2, set_pt_cl[1]+0.8)
+plt.legend(loc='lower right',frameon=False)
 for ii in draw_inds:
-    im_quad = plt.imread('working_files/figures/quad_figure.png')
-    im_quad = ndimage.rotate(im_quad, xs_bedmd_cl[2,ii]*180)
+    im_quad = plt.imread('working_files/figures/quad_figure_rb.png')
+    im_quad = ndimage.rotate(im_quad, xs_bedmd_cl[2,ii]/np.pi*180)
     imagebox_quad = OffsetImage(im_quad, zoom=.11)
     ab = AnnotationBbox(imagebox_quad, (xs_bedmd_cl[0,ii], xs_bedmd_cl[1,ii]), frameon=False)
     ax.add_artist(ab)

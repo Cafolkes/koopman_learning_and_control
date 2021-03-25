@@ -17,7 +17,7 @@ class NonlinearMPCController(Controller):
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings, const_offset=None,
-                 terminal_constraint=False, add_slack=False, q_slack=1e4):
+                 terminal_constraint=False, add_slack=False, q_slack=1e3):
         """
         Initialize the nonlinear mpc class.
         :param dynamics: (AffindeDynamics) dynamics object describing system dynamics
@@ -278,7 +278,8 @@ class NonlinearMPCController(Controller):
         if not self.add_slack:
             # Input constraints:
             Aineq_u = sparse.hstack(
-                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)), sparse.eye(self.N * self.nu)])
+                [sparse.csc_matrix((self.N * self.nu, (self.N + 1) * self.nx)),
+                 sparse.eye(self.N * self.nu)])
 
             # State constraints:
             Aineq_x = sparse.hstack([sparse.kron(sparse.eye(self.N + 1), self.C),
@@ -334,9 +335,10 @@ class NonlinearMPCController(Controller):
                 start_ind_B += self.nx + 1
 
         # Slack variables:
-        for t in range(self.N):
-            for i in range(self.ns):
-                data.append(np.ones(1))
+        if self.add_slack:
+            for t in range(self.N):
+                for i in range(self.ns):
+                    data.append(np.ones(1))
 
         flat_data = []
         for arr in data:

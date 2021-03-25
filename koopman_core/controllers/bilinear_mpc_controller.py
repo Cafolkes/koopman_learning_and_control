@@ -12,7 +12,7 @@ class BilinearMPCController(NonlinearMPCController):
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings, const_offset=None,
-                 terminal_constraint=False, add_slack=False, q_slack=1e-4):
+                 terminal_constraint=False, add_slack=False, q_slack=1e3):
 
         super(BilinearMPCController, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
                                         const_offset=const_offset,
