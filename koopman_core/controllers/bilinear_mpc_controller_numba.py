@@ -1,11 +1,22 @@
 import numpy as np
-import os
-import importlib
+from numba import jit
+from koopman_core.controllers import NonlinearMPCControllerNb
 
-from koopman_core.controllers import NonlinearMPCController
+@jit(nopython=True)
+def _update_linearization(A_flat, B_flat, B_arr, z_init, u_init, nx, N):
+    A_lst = np.dot(u_init, B_flat) + A_flat
+    A_lst_flat = A_lst.flatten()
+    B_lst_flat = (np.dot(z_init[:-1, :], B_arr)).flatten()
 
+    A_reshaped = A_lst.reshape(nx * N, nx)
+    r_vec = np.empty((N, nx))
+    for i in range(N):
+        r_vec[i, :] = np.dot(z_init[i, :], A_reshaped[i*nx:(i+1)*nx, :])
+    r_vec = (r_vec - z_init[1:, :]).flatten()
 
-class BilinearMPCController(NonlinearMPCController):
+    return A_lst_flat, B_lst_flat, r_vec
+
+class BilinearMPCControllerNb(NonlinearMPCControllerNb):
     """
     Class for bilinear MPC.
     Quadratic programs are solved using OSQP.
@@ -14,7 +25,7 @@ class BilinearMPCController(NonlinearMPCController):
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings, const_offset=None,
                  terminal_constraint=False, add_slack=False, q_slack=1e3):
 
-        super(BilinearMPCController, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
+        super(BilinearMPCControllerNb, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
                                         const_offset=const_offset,
                                         terminal_constraint=terminal_constraint,
                                         add_slack=add_slack,
@@ -30,6 +41,12 @@ class BilinearMPCController(NonlinearMPCController):
         self._osqp_A_data[self._osqp_A_data_B_inds] = B_lst
 
     def update_linearization_(self):
+        A_lst_flat, B_lst_flat, self.r_vec[:] = _update_linearization(self.A_flat, self.B_flat, self.B_arr,
+                                                                   self.z_init, self.u_init, self.nx, self.N)
+
+        return A_lst_flat, B_lst_flat
+
+    def update_linearization_old(self):
         A_lst = self.u_init @ self.B_flat + self.A_flat
         A_lst_flat = A_lst.flatten()
         B_lst_flat = (self.z_init[:-1, :] @ self.B_arr).flatten()
