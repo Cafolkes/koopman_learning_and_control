@@ -17,7 +17,7 @@ import copy
 from core.controllers import PDController
 from core.dynamics import ConfigurationDynamics
 
-from koopman_core.controllers import OpenLoopController, MPCController, PerturbedController, NonlinearMPCController, BilinearMPCController
+from koopman_core.controllers import OpenLoopController, MPCController, PerturbedController, NonlinearMPCControllerNb, BilinearMPCControllerNb
 from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
 from koopman_core.learning import Edmd, BilinearEdmd
 from koopman_core.basis_functions import PlanarQuadBasis
@@ -385,7 +385,7 @@ while exp < n_exp:
         edmd_trajgen_success = False
 
     # Generate trajectory with bEDMD model:
-    controller_bedmd = BilinearMPCController(sys_bedmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen,
+    controller_bedmd = BilinearMPCControllerNb(sys_bedmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen,
                                              Q_mpc, R_mpc, QN_mpc, xf_exp, solver_settings, add_slack=add_slack_trajgen,
                                              q_slack=q_slack_trajgen, terminal_constraint=term_constraint, const_offset=ctrl_offset)
     z0_exp = sys_bedmd.basis(x0_exp.reshape((1,-1))).squeeze()
@@ -405,7 +405,7 @@ while exp < n_exp:
 
     # Generate trajectory with nonlinear MPC with full model knowledge (benchmark):
     quadrotor_d = PlanarQuadrotorForceInputDiscrete(mass, inertia, prop_arm, g=gravity, dt=dt)
-    controller_nmpc = NonlinearMPCController(quadrotor_d, traj_length_trajgen, dt, umin+hover_thrust, umax+hover_thrust,
+    controller_nmpc = NonlinearMPCControllerNb(quadrotor_d, traj_length_trajgen, dt, umin+hover_thrust, umax+hover_thrust,
                                              xmin_trajgen, xmax_trajgen, Q_mpc, R_mpc, QN_mpc, xf_exp, solver_settings,
                                              add_slack=add_slack_trajgen, q_slack=q_slack_trajgen,
                                              terminal_constraint=term_constraint)
@@ -548,7 +548,7 @@ while exp < n_exp:
         z_init_bedmd = z_init[:traj_length_cl + 1, :]
         u_init_bedmd = u_init[:traj_length_cl, :]
 
-    controller_bedmd_cl = BilinearMPCController(sys_bedmd, traj_length_cl, dt, umin, umax, xmin_trajgen, xmax_trajgen,
+    controller_bedmd_cl = BilinearMPCControllerNb(sys_bedmd, traj_length_cl, dt, umin, umax, xmin_trajgen, xmax_trajgen,
                                                 Q_mpc_cl, R_mpc_cl, QN_mpc_cl, xf_exp, solver_settings, add_slack=add_slack_cl,
                                                 q_slack=q_slack_cl, const_offset=ctrl_offset)
     controller_bedmd_cl.construct_controller(z_init_bedmd, u_init_bedmd)
@@ -557,6 +557,7 @@ while exp < n_exp:
                                                  controller_bedmd.cur_u[:traj_length_cl,:], max_iter=max_iter_sqp)
         controller_bedmd_cl = PerturbedController(sys_bedmd,controller_bedmd_cl,0.,const_offset=hover_thrust,
                                                   umin=umin, umax=umax)
+        controller_bedmd_cl.eval(x0_exp, 0.)
         controller_bedmd_cl.nom_controller.comp_time, controller_bedmd_cl.nom_controller.prep_time, \
         controller_bedmd_cl.nom_controller.qp_time,  = [], [], []
         controller_bedmd_cl.nom_controller.update_solver_settings(solver_settings_cl)
@@ -577,12 +578,13 @@ while exp < n_exp:
         x_init_nmpc = x_init[:traj_length_cl + 1, :]
         u_init_nmpc = u_init[:traj_length_cl, :]
 
-    controller_nmpc_cl = NonlinearMPCController(quadrotor_d, traj_length_cl, dt, umin+hover_thrust, umax+hover_thrust,
+    controller_nmpc_cl = NonlinearMPCControllerNb(quadrotor_d, traj_length_cl, dt, umin+hover_thrust, umax+hover_thrust,
                                                 xmin_trajgen, xmax_trajgen, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, xf_exp,
                                                 solver_settings, add_slack=add_slack_cl, q_slack=q_slack_cl)
     controller_nmpc_cl.construct_controller(x_init_nmpc, u_init_nmpc)
     try:
         controller_nmpc_cl.solve_to_convergence(x0_exp, 0., x_init_nmpc, u_init_nmpc, max_iter=max_iter_sqp)
+        controller_nmpc_cl.eval(x0_exp, 0.)
         controller_nmpc_cl.comp_time, controller_nmpc_cl.prep_time, controller_nmpc_cl.qp_time,  = [], [], []
         controller_nmpc_cl.update_solver_settings(solver_settings_cl)
         xs_nmpc_cl, us_nmpc_cl = quadrotor.simulate(x0_exp, controller_nmpc_cl, t_eval_cl)
@@ -709,8 +711,8 @@ for name, method_stats in zip(model_names, stats_lst):
                            '{:.4f}'.format(100*np.sum(method_stats['cl_success'])/n_exp),
                            '{:.4f}'.format(np.nanmean(method_stats['cost_cl'])),
                            '{:.4f}'.format(np.nanstd(method_stats['cost_cl'])),
-                           '{:.4f}'.format(np.nanmean(method_stats['cl_comp_time_mean'])),
-                           '{:.4f}'.format(np.nanmean(method_stats['cl_comp_time_std']))
+                           '{:.5f}'.format(np.nanmean(method_stats['cl_comp_time_mean'])),
+                           '{:.5f}'.format(np.nanmean(method_stats['cl_comp_time_std']))
                            ])
 
 print(tabulate(trajectory_stats_table, headers=['% of initial conditions solved', 'avg ctrl effort', 'std ctrl effort',

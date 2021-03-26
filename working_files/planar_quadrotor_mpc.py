@@ -17,7 +17,7 @@ import copy
 from core.controllers import PDController
 from core.dynamics import ConfigurationDynamics
 
-from koopman_core.controllers import OpenLoopController, MPCController, PerturbedController, NonlinearMPCController, BilinearMPCController
+from koopman_core.controllers import OpenLoopController, MPCController, PerturbedController, NonlinearMPCControllerNb, BilinearMPCControllerNb
 from koopman_core.dynamics import LinearLiftedDynamics, BilinearLiftedDynamics
 from koopman_core.learning import Edmd, BilinearEdmd
 from koopman_core.basis_functions import PlanarQuadBasis
@@ -80,7 +80,7 @@ class PlanarQuadrotorForceInputDiscrete(PlanarQuadrotorForceInput):
                                                    [0, 0, 0, 0, 0, 1],
                                                    [0, 0, -(1/m)*np.cos(x0[2])*u0[0] -(1/m)*np.cos(x0[2])*u0[1], 0, 0, 0],
                                                    [0, 0, -(1/m)*np.sin(x0[2])*u0[0] -(1/m)*np.sin(x0[2])*u0[1], 0, 0, 0],
-                                                   [0, 0, 0, 0, 0, 0],])
+                                                   [0, 0, 0, 0, 0, 0]])
 
         B_lin = self.dt*np.array([[0, 0],
                                   [0, 0],
@@ -153,11 +153,11 @@ folder_plots = 'working_files/figures/'
 # Model and learning parameters:
 learn_models = False
 model_fname = 'working_files/data/planar_quad_models.pickle'
-alpha_dmd = 9.8e-5                                                  # Regularization strength (LASSO) DMD
+alpha_dmd = 2.3e-3                                                  # Regularization strength (LASSO) DMD
 tune_mdl_dmd = False
-alpha_edmd = 2.22e-4                                                # Regularization strength (LASSO) EDMD
+alpha_edmd = 1.4e-4                                                # Regularization strength (LASSO) EDMD
 tune_mdl_edmd = False
-alpha_bedmd = 6.9e-5                                                # Regularization strength (LASSO) bEDMD
+alpha_bedmd = 7.2e-5                                                # Regularization strength (LASSO) bEDMD
 tune_mdl_bedmd = False
 
 # Open loop prediction performance evaluation parameters:
@@ -195,7 +195,7 @@ xmin_trajgen = -xmax
 term_constraint = False
 x_init = np.linspace(x0_cl, set_pt_cl, int(traj_length_trajgen)+1)  # Initial state guess for SQP-algorithm
 u_init = np.zeros((m,traj_length_trajgen)).T                        # Initial control guess for SQP-algorithm
-max_iter_sqp = 500
+max_iter_sqp = 100
 add_slack_cl = True
 q_slack_cl = 1e3
 
@@ -278,7 +278,6 @@ if learn_models:
     if tune_mdl_dmd:
         print('$\\alpha$ DMD: ', model_dmd.cv.alpha_)
 
-
     #Learn lifted linear model with EDMD:
     basis = PlanarQuadBasis(n, poly_deg=3)
     basis.construct_basis()
@@ -295,8 +294,6 @@ if learn_models:
     model_edmd = Edmd(n, m, basis.basis, n_lift_edmd, n_traj_dc, optimizer_edmd, cv=cv_edmd, standardizer=standardizer_edmd, C=C_edmd, continuous_mdl=False, dt=dt)
     X_edmd, y_edmd = model_edmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
     model_edmd.fit(X_edmd, y_edmd, cv=tune_mdl_edmd, override_kinematics=True)
-    #model_edmd.reduce_mdl()
-    #sys_edmd = LinearLiftedDynamics(model_edmd.A, model_edmd.B, model_edmd.C, model_edmd.basis_reduced, continuous_mdl=False, dt=dt)
     sys_edmd = LinearLiftedDynamics(model_edmd.A, model_edmd.B, model_edmd.C, model_edmd.basis, continuous_mdl=False, dt=dt)
     if tune_mdl_edmd:
         print('$\\alpha$ EDMD: ',model_edmd.cv.alpha_)
@@ -314,7 +311,8 @@ if learn_models:
     model_bedmd = BilinearEdmd(n, m, basis_bedmd, n_lift_bedmd, n_traj_dc, optimizer_bedmd, cv=cv_bedmd, standardizer=standardizer_bedmd, C=C_bedmd, continuous_mdl=False, dt=dt)
     X_bedmd, y_bedmd = model_bedmd.process(xs, us-hover_thrust, np.tile(t_eval,(n_traj_dc,1)), downsample_rate=sub_sample_rate)
     model_bedmd.fit(X_bedmd, y_bedmd, cv=tune_mdl_bedmd, override_kinematics=True)
-    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C, model_bedmd.basis, continuous_mdl=False, dt=dt)
+    sys_bedmd = BilinearLiftedDynamics(model_bedmd.n_lift, m, model_bedmd.A, model_bedmd.B, model_bedmd.C,
+                                       model_bedmd.basis, continuous_mdl=False, dt=dt)
     if tune_mdl_bedmd:
         print('$\\alpha$ bilinear EDMD: ', model_bedmd.cv.alpha_)
 
@@ -442,7 +440,7 @@ xr_edmd = sys_edmd.C@controller_edmd.parse_result()
 ur_edmd = controller_edmd.get_control_prediction() + hover_thrust
 
 # Generate trajectory with bEDMD model:
-controller_bedmd = BilinearMPCController(sys_bedmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen,
+controller_bedmd = BilinearMPCControllerNb(sys_bedmd, traj_length_trajgen, dt, umin, umax, xmin_trajgen, xmax_trajgen,
                                          Q_mpc, R_mpc, QN_mpc, set_pt_cl, solver_settings, add_slack=add_slack_trajgen,
                                          q_slack=q_slack_trajgen, terminal_constraint=term_constraint, const_offset=ctrl_offset)
 z0_cl = sys_bedmd.basis(x0_cl.reshape((1,-1))).squeeze()
@@ -454,7 +452,7 @@ ur_bedmd = controller_bedmd.get_control_prediction().T + hover_thrust
 
 # Generate trajectory with nonlinear MPC with full model knowledge (benchmark):
 quadrotor_d = PlanarQuadrotorForceInputDiscrete(mass, inertia, prop_arm, g=gravity, dt=dt)
-controller_nmpc = NonlinearMPCController(quadrotor_d, traj_length_trajgen, dt, umin+hover_thrust, umax+hover_thrust,
+controller_nmpc = NonlinearMPCControllerNb(quadrotor_d, traj_length_trajgen, dt, umin+hover_thrust, umax+hover_thrust,
                                          xmin_trajgen, xmax_trajgen, Q_mpc, R_mpc, QN_mpc, set_pt_cl, solver_settings,
                                          add_slack=add_slack_trajgen, q_slack=q_slack_trajgen, terminal_constraint=term_constraint)
 controller_nmpc.construct_controller(x_init, u_init+hover_thrust)
@@ -622,23 +620,25 @@ controller_edmd_cl = MPCController(sys_edmd, traj_length_cl, dt, umin, umax, xmi
 controller_edmd_cl = PerturbedController(sys_edmd,controller_edmd_cl,0.,const_offset=hover_thrust, umin=umin, umax=umax)
 
 # Define and initialize controller based on bEDMD model:
-controller_bedmd_cl = BilinearMPCController(sys_bedmd, traj_length_cl, dt, umin, umax, xmin_trajgen, xmax_trajgen, Q_mpc_cl,
+controller_bedmd_cl = BilinearMPCControllerNb(sys_bedmd, traj_length_cl, dt, umin, umax, xmin_trajgen, xmax_trajgen, Q_mpc_cl,
                                             R_mpc_cl, QN_mpc_cl, set_pt_cl, solver_settings, add_slack=True,
                                             q_slack=q_slack_cl, const_offset=ctrl_offset)
 controller_bedmd_cl.construct_controller(controller_bedmd.cur_z[:traj_length_cl+1,:], controller_bedmd.cur_u[:traj_length_cl,:])
 controller_bedmd_cl.solve_to_convergence(z0_cl, 0., controller_bedmd.cur_z[:traj_length_cl+1,:], controller_bedmd.cur_u[:traj_length_cl,:],
                                          max_iter=max_iter_sqp)
 controller_bedmd_cl = PerturbedController(sys_bedmd,controller_bedmd_cl,0.,const_offset=hover_thrust, umin=umin, umax=umax)
+controller_bedmd_cl.eval(x0_cl, 0.)
 controller_bedmd_cl.nom_controller.comp_time, controller_bedmd_cl.nom_controller.prep_time, controller_bedmd_cl.nom_controller.qp_time,  = [], [], []
 controller_bedmd_cl.nom_controller.update_solver_settings(solver_settings_cl)
 
 # Define and initialize controller based on full model knowledge (benchmark):
-controller_nmpc_cl = NonlinearMPCController(quadrotor_d, traj_length_cl, dt, umin+hover_thrust, umax+hover_thrust,
+controller_nmpc_cl = NonlinearMPCControllerNb(quadrotor_d, traj_length_cl, dt, umin+hover_thrust, umax+hover_thrust,
                                             xmin_trajgen, xmax_trajgen, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt_cl,
                                             solver_settings, add_slack=True, q_slack=q_slack_cl)
 controller_nmpc_cl.construct_controller(controller_nmpc.cur_z[:traj_length_cl+1,:], controller_nmpc.cur_u[:traj_length_cl,:])
 controller_nmpc_cl.solve_to_convergence(x0_cl, 0., controller_nmpc.cur_z[:traj_length_cl+1,:], controller_nmpc.cur_u[:traj_length_cl,:],
                                         max_iter=max_iter_sqp)
+controller_nmpc_cl.eval(x0_cl, 0.)  # Run controller once to compile numba
 controller_nmpc_cl.comp_time, controller_nmpc_cl.prep_time, controller_nmpc_cl.qp_time,  = [], [], []
 controller_nmpc_cl.update_solver_settings(solver_settings_cl)
 

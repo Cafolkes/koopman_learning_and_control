@@ -4,7 +4,6 @@ from scipy.signal import cont2discrete
 import osqp
 from core.controllers.controller import Controller
 
-
 class MPCController(Controller):
     """
     Class for linear MPC with lifted linear dynamics.

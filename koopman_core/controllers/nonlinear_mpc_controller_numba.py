@@ -4,12 +4,70 @@ import numpy as np
 import osqp
 from scipy import sparse
 import importlib
+from numba import jit
 
 from core.controllers.controller import Controller
 from koopman_core.dynamics import BilinearLiftedDynamics
 
+@jit(nopython=True)
+def _update_objective(C, Q, QN, R, xr, x_init, u_init, const_offset, nx, nu, N):
+    """
+    Construct MPC objective function
+    :return:
+    """
+    res = np.empty(nx*(N+1)+nu*N)
+    res[nx*N:nx*(N+1)] = C.T @ QN @ (x_init[:, -1] - xr)
+    for ii in range(N):
+        res[ii*nx:(ii+1)*nx] = C.T @ Q @ (x_init[:, ii] - xr)
+        res[(N+1)*nx + nu*ii:(N+1)*nx + nu*(ii+1)] = R @ (u_init[ii, :] + const_offset)
 
-class NonlinearMPCController(Controller):
+    return res
+
+# TODO: Compile with Numba (entire get_linearization function must be compiled with Numba too)
+def _update_linearization(z_init, u_init, get_linearization):
+    A_lst, B_lst, r_lst = [], [], []
+    for z, z_next, u in zip(z_init[:-1, :], z_init[1:, :], u_init):
+        a, b, r = get_linearization(z, z_next, u, None)
+        A_lst.append(a)
+        B_lst.append(b)
+        r_lst.append(r)
+
+    r_vec = np.array(r_lst).flatten()
+    return A_lst, B_lst, r_vec
+
+@jit(nopython=True)
+def _update_constraint_vecs(osqp_l, osqp_u, z, z_init, x_init_flat, xr, xmin_tiled, xmax_tiled,
+                            u_init_flat, umin_tiled, umax_tiled, r_vec, nx, ns, N, n_opt_x, n_opt_x_u, terminal_constraint):
+    # Equality constraints:
+    osqp_l[:nx] = -(z - z_init[0, :])
+    osqp_l[nx:nx * (N + 1)] = -r_vec
+
+    osqp_u[:nx * (N + 1)] = osqp_l[:nx * (N + 1)]
+
+    # Input constraints:
+    osqp_l[n_opt_x:n_opt_x_u] = umin_tiled - u_init_flat
+    osqp_u[n_opt_x:n_opt_x_u] = umax_tiled - u_init_flat
+
+    # State constraints:
+    osqp_l[n_opt_x_u:] = xmin_tiled - x_init_flat
+    osqp_u[n_opt_x_u:] = xmax_tiled - x_init_flat
+
+    if terminal_constraint:
+        osqp_l[-ns:] = xr - x_init_flat[-ns:]
+        osqp_u[-ns:] = osqp_l[-ns:]
+
+    return osqp_l, osqp_u
+
+@jit(nopython=True)
+def _update_current_sol(z_init, dz_flat, u_init, du_flat, u_init_flat, nx, nu, N):
+    cur_z = z_init + dz_flat.reshape(N + 1, nx)
+    cur_u = u_init + du_flat.reshape(N, nu)
+    u_init_flat = u_init_flat + du_flat
+
+    return cur_z, cur_u, u_init_flat
+
+
+class NonlinearMPCControllerNb(Controller):
     """
     Class for nonlinear MPC with control-affine dynamics.
 
@@ -93,7 +151,7 @@ class NonlinearMPCController(Controller):
         self.x_init = self.C @ z_init.T
         self.u_init_flat = self.u_init.flatten()
         self.x_init_flat = self.x_init.flatten(order='F')
-        self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
+        #self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
 
         A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
         B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
@@ -118,6 +176,11 @@ class NonlinearMPCController(Controller):
                         eps_dual_inf=self.solver_settings['eps_dual_inf'],
                         linsys_solver=self.solver_settings['linsys_solver'],
                         adaptive_rho=self.solver_settings['adaptive_rho'])
+
+        self.Q = self.Q.toarray()
+        self.QN = self.QN.toarray()
+        self.R = self.R.toarray()
+        self.Q_slack = self.Q_slack.toarray()
 
         if self.solver_settings['gen_embedded_ctrl']:
             self.construct_embedded_controller()
@@ -199,18 +262,18 @@ class NonlinearMPCController(Controller):
         :return: u: (np.array) Current control input
         """
         t0 = time.time()
-        z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
-        self.update_initial_guess_()
-        self.update_objective_()
-        A_lst, B_lst = self.update_linearization_()
-        self.update_constraint_matrix_data_(A_lst, B_lst)
-        self.update_constraint_vecs_(z, t)
+        z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()   # Not compiled with Numba
+        self.update_initial_guess_()                                        # Not compiled with Numba
+        self.update_objective_()                                            # Compiled with Numba
+        A_lst, B_lst = self.update_linearization_()                         # Not compiled with Numba
+        self.update_constraint_matrix_data_(A_lst, B_lst)                   # Not compiled with Numba
+        self.update_constraint_vecs_(z, t)                                  # Compiled with Numba
         t_prep = time.time() - t0
 
         self.solve_mpc_()
-        self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
-        self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
-        self.u_init_flat = self.u_init_flat + self.du_flat
+        self.cur_z, self.cur_u, self.u_init_flat = _update_current_sol(self.z_init, self.dz_flat, self.u_init,
+                                                                       self.du_flat, self.u_init_flat, self.nx,
+                                                                       self.nu, self.N)  # Compiled with Numba
         self.comp_time.append(time.time() - t0)
         self.prep_time.append(t_prep)
         self.qp_time.append(self.comp_time[-1] - t_prep)
@@ -254,11 +317,9 @@ class NonlinearMPCController(Controller):
         Construct MPC objective function
         :return:
         """
-        # TODO: Change with direct memory allocation:
-        self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
-            [(self.C.T @ self.Q @ (self.x_init[:, :-1] - self.xr.reshape(-1, 1))).flatten(order='F'),
-             self.C.T @ self.QN @ (self.x_init[:, -1] - self.xr),
-             (self.R @ (self.u_init.T + self.const_offset)).flatten(order='F')])
+        self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = \
+            _update_objective(self.C, self.Q, self.QN, self.R, self.xr, self.x_init, self.u_init, self.const_offset.squeeze(),
+                              self.nx, self.nu, self.N)
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         """
@@ -401,23 +462,11 @@ class NonlinearMPCController(Controller):
         :param t: (float) Current time (for time-dependent dynamics)
         :return:
         """
-        # Equality constraints:
-        self._osqp_l[:self.nx] = -(z - self.z_init[0, :])
-        self._osqp_l[self.nx:self.nx * (self.N + 1)] = -self.r_vec
-
-        self._osqp_u[:self.nx * (self.N + 1)] = self._osqp_l[:self.nx * (self.N + 1)]
-
-        # Input constraints:
-        self._osqp_l[self.n_opt_x:self.n_opt_x_u] = self.umin_tiled - self.u_init_flat
-        self._osqp_u[self.n_opt_x:self.n_opt_x_u] = self.umax_tiled - self.u_init_flat
-
-        # State constraints:
-        self._osqp_l[self.n_opt_x_u:] = self.xmin_tiled - self.x_init_flat
-        self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - self.x_init_flat
-
-        if self.terminal_constraint:
-            self._osqp_l[-self.ns:] = self.xr - self.x_init_flat[-self.ns:]
-            self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
+        self._osqp_l, self._osqp_u = _update_constraint_vecs(self._osqp_l, self._osqp_u, z, self.z_init,
+                                                             self.x_init_flat, self.xr, self.xmin_tiled, self.xmax_tiled,
+                                                             self.u_init_flat, self.umin_tiled, self.umax_tiled,
+                                                             self.r_vec, self.nx, self.ns, self.N,
+                                                             self.n_opt_x, self.n_opt_x_u, self.terminal_constraint)
 
     def solve_mpc_(self):
         """
@@ -460,13 +509,13 @@ class NonlinearMPCController(Controller):
         self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
-        du_new = self.du_flat[-self.nu:]
-        dz_last = self.dz_flat[-self.nx:]
-        dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
-        self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
-        self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
-        self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
-        self.warm_start[-self.nu:] = du_new
+        #du_new = self.du_flat[-self.nu:]
+        #dz_last = self.dz_flat[-self.nx:]
+        #dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
+        #self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
+        #self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
+        #self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
+        #self.warm_start[-self.nu:] = du_new
 
     def update_linearization_(self):
         """
@@ -474,14 +523,7 @@ class NonlinearMPCController(Controller):
         :return: A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
                  B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         """
-        A_lst, B_lst, r_lst = [], [], []
-        for z, z_next, u in zip(self.z_init[:-1, :], self.z_init[1:, :], self.u_init):
-            a, b, r = self.dynamics_object.get_linearization(z, z_next, u, None)
-            A_lst.append(a)
-            B_lst.append(b)
-            r_lst.append(r)
-
-        self.r_vec = np.array(r_lst).flatten()
+        A_lst, B_lst, self.r_vec = _update_linearization(self.z_init, self.u_init, self.dynamics_object.get_linearization)
         return A_lst, B_lst
 
     def construct_embedded_controller(self):
