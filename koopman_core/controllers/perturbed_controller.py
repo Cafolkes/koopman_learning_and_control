@@ -1,5 +1,5 @@
 import numpy as np
-from core.controllers.controller import Controller
+from ...core.controllers.controller import Controller
 
 class PerturbedController(Controller):
     """Class for proportional-derivative policies."""

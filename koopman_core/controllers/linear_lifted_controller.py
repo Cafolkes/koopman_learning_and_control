@@ -1,6 +1,6 @@
 from numpy import dot
 
-from core.controllers import Controller
+from ...core.controllers import Controller
 
 class LinearLiftedController(Controller):
     """Class for linear policies."""

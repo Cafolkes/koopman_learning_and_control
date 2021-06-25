@@ -2,7 +2,7 @@ from numpy import dot
 from numpy.linalg import solve
 
 from .controller import Controller
-from core.dynamics import AffineQuadCLF
+from ..dynamics import AffineQuadCLF
 
 class LQRController(Controller):
     """Class for Linear Quadratic Regulator (LQR) policies.

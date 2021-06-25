@@ -10,3 +10,4 @@ from .nonlinear_mpc_controller import NonlinearMPCController
 from .bilinear_mpc_controller import BilinearMPCController
 from .nonlinear_mpc_controller_numba import NonlinearMPCControllerNb
 from .bilinear_mpc_controller_numba import BilinearMPCControllerNb
+from .nmpc_traj_controller import NMPCTrajController

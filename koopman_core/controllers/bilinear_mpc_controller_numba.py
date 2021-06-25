@@ -1,6 +1,6 @@
 import numpy as np
 from numba import jit
-from koopman_core.controllers import NonlinearMPCControllerNb
+from ..controllers import NonlinearMPCControllerNb
 
 @jit(nopython=True)
 def _update_linearization(A_flat, B_flat, B_arr, z_init, u_init, nx, N):

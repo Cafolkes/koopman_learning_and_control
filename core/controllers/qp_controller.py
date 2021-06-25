@@ -3,7 +3,7 @@ from numpy import zeros
 from numpy.linalg import eigvals
 
 from .controller import Controller
-from core.dynamics import AffineQuadCLF
+from ..dynamics import AffineQuadCLF
 
 class QPController(Controller):
     """Class for controllers solving quadratic programs (QPs).

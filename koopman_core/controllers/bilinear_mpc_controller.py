@@ -2,7 +2,7 @@ import numpy as np
 import os
 import importlib
 
-from koopman_core.controllers import NonlinearMPCController
+from ..controllers import NonlinearMPCController
 
 
 class BilinearMPCController(NonlinearMPCController):
