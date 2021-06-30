@@ -88,11 +88,12 @@ class NMPCTrajController(Controller):
         :param u_init: (np.array) Initial guess of u-solution
         :return:
         """
-        z0 = z_init[0, :]
+
+        z0 = z_init[:, 0]
         self.z_init = z_init
         self.u_init = u_init
         self.x_init = self.C_x @ z_init
-        self.u_init_flat = self.u_init.flatten()
+        self.u_init_flat = self.u_init.flatten(order='F') #TODO: Check flatten
         self.x_init_flat = self.x_init.flatten(order='F')
         self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
 
@@ -107,7 +108,6 @@ class NMPCTrajController(Controller):
         self.construct_constraint_matrix_data_(A_lst, B_lst)
 
         # Create an OSQP object and setup workspace
-        print(self._osqp_A.shape, self._osqp_l.shape, self._osqp_u.shape)
         self.prob = osqp.OSQP()
         self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=False,
                         warm_start=self.solver_settings['warm_start'],
@@ -145,7 +145,7 @@ class NMPCTrajController(Controller):
                         eps_dual_inf=self.solver_settings['eps_dual_inf'],
                         linsys_solver=self.solver_settings['linsys_solver'])
 
-    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1):
+    def solve_to_convergence(self, z, t, z_init_0, u_init_0, eps=1e-3, max_iter=1, min_iter=10):
         """
         Run SQP-algorithm to convergence
         :param z: (np.array) Initial value of z
@@ -161,27 +161,28 @@ class NMPCTrajController(Controller):
         self.cur_u = u_init_0
         u_prev = np.zeros_like(u_init_0)
 
-        while (iter == 0 or np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev) > eps) and iter < max_iter:
+        while (iter < min_iter or np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev) > eps) and iter < max_iter:
             t0 = time.time()
             u_prev = self.cur_u.copy()
             self.z_init = self.cur_z.copy()
-            self.x_init = (self.C_x @ self.z_init.T)
+            self.x_init = (self.C_x @ self.z_init)
             self.u_init = self.cur_u.copy()
 
             # Update equality constraint matrices:
             A_lst, B_lst = self.update_linearization_()
 
             # Solve MPC Instance
-            self.update_objective_()
+            self.update_objective_(t)
             self.construct_constraint_vecs_(z, None)
             self.update_constraint_matrix_data_(A_lst, B_lst)
             t_prep = time.time() - t0
 
             self.solve_mpc_()
-            dz = self.dz_flat.reshape(self.N + 1, self.nx)
-            du = self.du_flat.reshape(self.N, self.nu)
+            dz = self.dz_flat.reshape(self.nx, self.N + 1, order='F')
+            du = self.du_flat.reshape(self.nu, self.N, order='F')
 
-            alpha = 1
+            alpha = min(1., iter/200 + 0.01)
+
             self.cur_z = self.z_init + alpha * dz
             self.cur_u = self.u_init + alpha * du
             self.u_init_flat = self.u_init_flat + alpha * self.du_flat
@@ -192,6 +193,8 @@ class NMPCTrajController(Controller):
             self.qp_time.append(self.comp_time[-1] - t_prep)
             self.x_iter.append(self.cur_z.copy().T)
             self.u_iter.append(self.cur_u.copy().T)
+
+            print(iter, alpha, np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev))
 
     def eval(self, x, t):
         """
@@ -210,14 +213,14 @@ class NMPCTrajController(Controller):
         t_prep = time.time() - t0
 
         self.solve_mpc_()
-        self.cur_z = self.z_init + self.dz_flat.reshape(self.N + 1, self.nx)
-        self.cur_u = self.u_init + self.du_flat.reshape(self.N, self.nu)
+        self.cur_z = self.z_init + self.dz_flat.reshape(self.nx, self.N + 1, order='F')
+        self.cur_u = self.u_init + self.du_flat.reshape(self.nu, self.N, order='F')
         self.u_init_flat = self.u_init_flat + self.du_flat
         self.comp_time.append(time.time() - t0)
         self.prep_time.append(t_prep)
         self.qp_time.append(self.comp_time[-1] - t_prep)
 
-        return self.cur_u[0, :]
+        return self.cur_u[:, 0]
 
     def construct_objective_(self):
         """
@@ -266,9 +269,9 @@ class NMPCTrajController(Controller):
 
         # TODO: Change with direct memory allocation:
         self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
-            [(self.C_obj.T @ self.Q @ (self.x_init[:, :-1] - xr[:,:-1])).flatten(order='F'),
-             self.C_obj.T @ self.QN @ (self.x_init[:, -1] - xr[:,-1]),
-             (self.R @ (self.u_init.T + self.const_offset)).flatten(order='F')])
+            [(self.C_obj.T @ self.Q @ (self.C_obj @ self.z_init[:, :-1] - xr[:,:-1])).flatten(order='F'),
+             self.C_obj.T @ self.QN @ (self.C_obj @ self.z_init[:, -1] - xr[:,-1]),
+             (self.R @ (self.u_init + self.const_offset)).flatten(order='F')])
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         """
@@ -277,6 +280,7 @@ class NMPCTrajController(Controller):
         :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         :return:
         """
+
         # Linear dynamics constraints:
         A_dyn = sparse.vstack((sparse.csc_matrix((self.nx, (self.N + 1) * self.nx)),
                                sparse.hstack((
@@ -376,15 +380,16 @@ class NMPCTrajController(Controller):
         :param t: (float) Current time (for time-dependent dynamics)
         :return:
         """
+
         self.n_opt_x = self.nx * (self.N + 1)
         self.n_opt_x_u = self.nx * (self.N + 1) + self.nu * self.N
 
-        dz0 = z - self.z_init[0, :]
+        dz0 = z - self.z_init[:, 0]
         leq = np.hstack([-dz0, -self.r_vec])
         ueq = leq
 
         # Input constraints:
-        u_init_flat = self.u_init.flatten()
+        u_init_flat = self.u_init.flatten(order='F')  # TODO: Check flattening ok
         self.umin_tiled = np.tile(self.umin, self.N)
         self.umax_tiled = np.tile(self.umax, self.N)
         lineq_u = self.umin_tiled - u_init_flat
@@ -412,7 +417,7 @@ class NMPCTrajController(Controller):
         :return:
         """
         # Equality constraints:
-        self._osqp_l[:self.nx] = -(z - self.z_init[0, :])
+        self._osqp_l[:self.nx] = -(z - self.z_init[:, 0])
         self._osqp_l[self.nx:self.nx * (self.N + 1)] = -self.r_vec
 
         self._osqp_u[:self.nx * (self.N + 1)] = self._osqp_l[:self.nx * (self.N + 1)]
@@ -454,20 +459,20 @@ class NMPCTrajController(Controller):
         Update the intial guess of the solution (z_init, u_init)
         :return:
         """
-        z_last = self.cur_z[-1, :]
-        u_new = self.cur_u[-1, :]
+        z_last = self.cur_z[:, -1]
+        u_new = self.cur_u[:, -1]
         z_new = self.dynamics_object.eval_dot(z_last, u_new, None)
 
-        self.z_init[:-1, :] = self.cur_z[1:, :]
-        self.z_init[-1, :] = z_new
+        self.z_init[:, :-1] = self.cur_z[:, 1:]
+        self.z_init[:, -1] = z_new
 
-        self.u_init[:-1, :] = self.cur_u[1:, :]
-        self.u_init[-1, :] = u_new
+        self.u_init[:, :-1] = self.cur_u[:, 1:]
+        self.u_init[:, -1] = u_new
         self.u_init_flat[:-self.nu] = self.u_init_flat[self.nu:]
         self.u_init_flat[-self.nu:] = u_new
 
-        self.x_init = self.C_x @ self.z_init.T
-        self.x_init_flat = self.x_init.flatten(order='F')
+        self.x_init = self.C_x @ self.z_init
+        self.x_init_flat = self.x_init.flatten(order='F') # TODO: Check flatten
 
         # Warm start of OSQP:
         du_new = self.du_flat[-self.nu:]
@@ -485,8 +490,9 @@ class NMPCTrajController(Controller):
                  B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         """
         A_lst, B_lst, r_lst = [], [], []
-        for z, z_next, u in zip(self.z_init[:-1, :], self.z_init[1:, :], self.u_init):
-            a, b, r = self.dynamics_object.get_linearization(z, z_next, u, None)
+        for ii in range(self.N):
+            a, b, r = self.dynamics_object.get_linearization(self.z_init[:, ii], self.z_init[:, ii+1],
+                                                             self.u_init[:, ii], None)
             A_lst.append(a)
             B_lst.append(b)
             r_lst.append(r)

@@ -179,7 +179,7 @@ class NonlinearMPCController(Controller):
             dz = self.dz_flat.reshape(self.N + 1, self.nx)
             du = self.du_flat.reshape(self.N, self.nu)
 
-            alpha = 1
+            alpha = 1.
             self.cur_z = self.z_init + alpha * dz
             self.cur_u = self.u_init + alpha * du
             self.u_init_flat = self.u_init_flat + alpha * self.du_flat

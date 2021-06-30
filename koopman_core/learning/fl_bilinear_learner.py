@@ -2,7 +2,7 @@ import cvxpy as cp
 import numpy as np
 import time
 
-from koopman_core.learning import BilinearEdmd
+from . import BilinearEdmd
 
 
 class FlBilinearLearner(BilinearEdmd):

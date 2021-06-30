@@ -1,7 +1,7 @@
 from numpy import array, ones_like, zeros
 from scipy.integrate import solve_ivp
 
-from core.dynamics import RoboticDynamics
+from ...core.dynamics import RoboticDynamics
 
 
 class OneDimDrone(RoboticDynamics):
