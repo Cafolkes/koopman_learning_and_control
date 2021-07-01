@@ -438,6 +438,8 @@ class NonlinearMPCController(Controller):
             self.res = self.prob.solve()
             self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
             self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
+            if self.res.info.status != 'solved':
+                raise ValueError('OSQP did not solve the problem!')
 
     def update_initial_guess_(self):
         """
