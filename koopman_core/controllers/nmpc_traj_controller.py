@@ -81,6 +81,8 @@ class NMPCTrajController(Controller):
         self.x_iter = []
         self.u_iter = []
 
+        self.sub_traj = []
+
     def construct_controller(self, z_init, u_init):
         """
         Construct NMPC controller.
@@ -92,9 +94,14 @@ class NMPCTrajController(Controller):
         z0 = z_init[:, 0]
         self.z_init = z_init
         self.u_init = u_init
+        self.cur_z = z_init
+        self.cur_u = u_init
         self.x_init = self.C_x @ z_init
-        self.u_init_flat = self.u_init.flatten(order='F') #TODO: Check flatten
+        self.u_init_flat = self.u_init.flatten(order='F')
         self.x_init_flat = self.x_init.flatten(order='F')
+        self.dz_flat = self.z_init.flatten(order='F')
+        self.du_flat = self.u_init.flatten(order='F')
+
         self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
 
         A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
@@ -110,6 +117,7 @@ class NMPCTrajController(Controller):
         # Create an OSQP object and setup workspace
         self.prob = osqp.OSQP()
         self.prob.setup(P=self._osqp_P, q=self._osqp_q, A=self._osqp_A, l=self._osqp_l, u=self._osqp_u, verbose=False,
+                        max_iter=self.solver_settings['max_iter'],
                         warm_start=self.solver_settings['warm_start'],
                         polish=self.solver_settings['polish'],
                         polish_refine_iter=self.solver_settings['polish_refine_iter'],
@@ -161,6 +169,8 @@ class NMPCTrajController(Controller):
         self.cur_u = u_init_0
         u_prev = np.zeros_like(u_init_0)
 
+        from matplotlib import pyplot as plt
+        plt.figure()
         while (iter < min_iter or np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev) > eps) and iter < max_iter:
             t0 = time.time()
             u_prev = self.cur_u.copy()
@@ -181,12 +191,15 @@ class NMPCTrajController(Controller):
             dz = self.dz_flat.reshape(self.nx, self.N + 1, order='F')
             du = self.du_flat.reshape(self.nu, self.N, order='F')
 
-            alpha = min(1., iter/200 + 0.01)
+            alpha = min(1., iter/min_iter + 1/min_iter)
 
+            print(alpha)
             self.cur_z = self.z_init + alpha * dz
             self.cur_u = self.u_init + alpha * du
             self.u_init_flat = self.u_init_flat + alpha * self.du_flat
 
+            #plt.plot(self.cur_z[0, :], self.cur_z[2,:], label=str(iter))
+            #plt.show()
             iter += 1
             self.comp_time.append(time.time() - t0)
             self.prep_time.append(t_prep)
@@ -194,7 +207,7 @@ class NMPCTrajController(Controller):
             self.x_iter.append(self.cur_z.copy().T)
             self.u_iter.append(self.cur_u.copy().T)
 
-            print(iter, alpha, np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev))
+            #print(iter, alpha, np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev))
 
     def eval(self, x, t):
         """
@@ -228,7 +241,6 @@ class NMPCTrajController(Controller):
         :return:
         """
         # Quadratic objective:
-
         if not self.add_slack:
             self._osqp_P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.C_obj.T @ self.Q @ self.C_obj),
                                               self.C_obj.T @ self.QN @ self.C_obj,
@@ -264,8 +276,8 @@ class NMPCTrajController(Controller):
         Construct MPC objective function
         :return:
         """
-        tindex = int(t / self.dt)
-        xr = self.xr[:, tindex:tindex + self.N + 1]
+        tindex = int(t/self.dt)
+        xr = self.xr[:, tindex:tindex+self.N+1]
 
         # TODO: Change with direct memory allocation:
         self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
@@ -403,8 +415,9 @@ class NMPCTrajController(Controller):
         uineq_x = self.xmax_tiled - x_init_flat
 
         if self.terminal_constraint:
-            lineq_x[-self.ns:] = self.xr - self.x_init[:, -1]
-            uineq_x[-self.ns:] = lineq_x[-self.ns:]
+            raise Warning('Terminal constraint not implemented.')
+            #lineq_x[-self.ns:] = self.xr - self.x_init[:, -1]
+            #uineq_x[-self.ns:] = lineq_x[-self.ns:]
 
         self._osqp_l = np.hstack([leq, lineq_u, lineq_x])
         self._osqp_u = np.hstack([ueq, uineq_u, uineq_x])
@@ -431,8 +444,9 @@ class NMPCTrajController(Controller):
         self._osqp_u[self.n_opt_x_u:] = self.xmax_tiled - self.x_init_flat
 
         if self.terminal_constraint:
-            self._osqp_l[-self.ns:] = self.xr - self.x_init_flat[-self.ns:]
-            self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
+            raise Warning('Terminal constraint not implemented.')
+            #self._osqp_l[-self.ns:] = self.xr - self.x_init_flat[-self.ns:]
+            #self._osqp_u[-self.ns:] = self._osqp_l[-self.ns:]
 
     def solve_mpc_(self):
         """
@@ -453,6 +467,9 @@ class NMPCTrajController(Controller):
             self.res = self.prob.solve()
             self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
             self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
+
+        if self.res.info.status != 'solved':
+            raise ValueError('OSQP did not solve the problem!', self.res.info.status)
 
     def update_initial_guess_(self):
         """
