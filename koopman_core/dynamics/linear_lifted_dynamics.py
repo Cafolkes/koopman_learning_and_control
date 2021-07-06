@@ -4,7 +4,7 @@ from ...core.dynamics import AffineDynamics, LinearizableDynamics, SystemDynamic
 class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics):
     """Class for linear dynamics of the form x_dot = A * x + B * u."""
 
-    def __init__(self, A, B, C, basis, continuous_mdl=True, dt=None):
+    def __init__(self, A, B, C, basis, continuous_mdl=True, dt=None, standardizer_x=None, standardizer_u=None):
         """Create a LinearSystemDynamics object.
 
         Inputs:
@@ -12,7 +12,11 @@ class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics)
         Input matrix, B: numpy array
         """
 
-        n, m = B.shape
+        if B is not None:
+            n, m = B.shape
+        else:
+            n, m = A.shape[0], None
+
         assert A.shape == (n, n)
 
         SystemDynamics.__init__(self, n, m)
@@ -23,12 +27,20 @@ class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics)
 
         self.continuous_mdl = continuous_mdl
         self.dt = dt
+        self.standardizer_x = standardizer_x
+        self.standardizer_u = standardizer_u
 
     def drift(self, x, t):
         return dot(self.A, x)
 
     def act(self, x, t):
         return self.B
+
+    def eval_dot(self, x, u, t):
+        if self.B is None:
+            return self.drift(x,t)
+        else:
+            return AffineDynamics.eval_dot(self, x, u, t)
 
     def linear_system(self):
         return self.A, self.B

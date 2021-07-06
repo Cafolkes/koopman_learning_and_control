@@ -101,6 +101,11 @@ class FiniteDimKoopSysDiscrete(FiniteDimKoopSys):
         r_lin = f_d - x1
 
         return A_lin, B_lin, r_lin
+    
+    def get_lagrangian_hess(self, x0, x1, u0, t):
+        Q_lst = None
+        
+        return Q_lst
 
 n, m = 4, 2
 lambd, mu, c = .3, .2, -.5
@@ -137,11 +142,11 @@ traj_length = int(traj_duration/dt)
 # Design trajectory:
 x0 = np.array([0., 0., 0., 0.])
 set_pt = np.array([5., 3., 0., 0.])
-term_constraint = False
+term_constraint = True
 
 # Define initial solution for SQP algorithm:
 x_init = np.linspace(x0, set_pt, int(traj_length)+1)
-u_init = np.zeros((m,traj_length)).T
+u_init = np.ones((m,traj_length)).T
 
 
 # # Construct Koopman bilinear form of the system
@@ -285,39 +290,12 @@ show()
 
 
 # # Design model predictive controllers
-
-# In[6]:
-
-
-solver_settings = {}
-solver_settings['gen_embedded_ctrl'] = False
-solver_settings['warm_start'] = True
-solver_settings['polish'] = True
-solver_settings['scaling'] = True
-solver_settings['adaptive_rho'] = True
-solver_settings['check_termination'] = 25
-solver_settings['max_iter'] = 4000
-solver_settings['eps_abs'] = 1e-6
-solver_settings['eps_rel'] = 1e-6
-solver_settings['eps_prim_inf'] = 1e-4
-solver_settings['eps_dual_inf'] = 1e-4
-solver_settings['linsys_solver'] = 'qdldl'
-
-
-# #### Linear model predictive controller
-
-# In[7]:
-
-
 from koopman_core.controllers import MPCController
 
 controller_lmpc = MPCController(linearized_sys, traj_length, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, QN_mpc, set_pt, terminal_constraint=term_constraint, add_slack=True)
 
 
 # #### Bilinear model predictive controller
-
-# In[8]:
-
 
 from koopman_core.controllers import NonlinearMPCController, BilinearMPCController
 
@@ -327,7 +305,8 @@ B_d = [b*dt for b in koop_bilinear_sys.B]
 kbf_d = BilinearLiftedDynamics(n_koop, m, A_d, B_d, C, koop_bilinear_sys.basis, continuous_mdl=False, dt=dt)
 
 # Define kbf controller:
-controller_knmpc = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, QN_mpc, set_pt, solver_settings, terminal_constraint=term_constraint)
+controller_knmpc = BilinearMPCController(kbf_d, traj_length, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, QN_mpc, set_pt, terminal_constraint=term_constraint)
+
 z0 = phi_fun(x0.reshape((1,-1)))
 z_init = np.array([phi_fun(x.reshape((1,-1))) for x in x_init])
 controller_knmpc.construct_controller(z_init, u_init)
@@ -335,19 +314,17 @@ controller_knmpc.construct_controller(z_init, u_init)
 
 # #### Nonlinear model predictive controller
 
-# In[9]:
+# In[8]:
 
 
 finite_dim_koop_sys_d = FiniteDimKoopSysDiscrete(lambd, mu, c, dt)
-controller_nmpc = NonlinearMPCController(finite_dim_koop_sys_d, traj_length, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, QN_mpc, set_pt, solver_settings, terminal_constraint=term_constraint)
+controller_nmpc = NonlinearMPCController(finite_dim_koop_sys_d, traj_length, dt, umin, umax, xmin, xmax, Q_mpc, R_mpc, QN_mpc, set_pt, terminal_constraint=term_constraint)
 controller_nmpc.construct_controller(x_init, u_init)
 
 
 # # Evaluate performance of controllers for trajectory generation
 
 # #### Design trajectories with the constructed MPCs
-
-# In[10]:
 
 
 max_iter = 50
@@ -367,8 +344,6 @@ ur_nmpc = controller_nmpc.get_control_prediction().T
 
 # #### Simulate designed trajectories open-loop
 
-# In[11]:
-
 
 from koopman_core.controllers import OpenLoopController
 t_eval = np.arange(0,traj_length+1)*dt
@@ -387,7 +362,7 @@ xs_nmpc, us_nmpc = xs_nmpc.T, us_nmpc.T
 
 # #### Plot/analyze the results
 
-# In[12]:
+# In[11]:
 
 
 import matplotlib.pyplot as plt
@@ -452,7 +427,7 @@ print(tabulate([['Linear MPC', cost_ref_lmpc/cost_ref_nmpc, cost_ol_lmpc/cost_ol
 
 # #### Study evolution of the solution after each iteration of the SQP-algorithm
 
-# In[13]:
+# In[12]:
 
 
 n_iter = min(len(controller_nmpc.x_iter),len(controller_knmpc.x_iter))
@@ -525,54 +500,31 @@ print(tabulate([['Nonlinear MPC', len(controller_nmpc.x_iter), np.mean(controlle
 
 # #### Design finite horizon controllers
 
-# In[14]:
-
+# In[13]:
 
 Q_mpc_cl = 1e2*np.diag([1, 1, 2e-1, 2e-1])
 QN_mpc_cl= Q_mpc_cl
 R_mpc_cl = np.eye(m)
 traj_duration = 0.5
 N_cl = int(traj_duration/dt)
-max_iter_sqp = 100
 
-solver_settings_cl = solver_settings
-
-
-# In[15]:
-
-
-controller_lmpc_cl = MPCController(linearized_sys, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, terminal_constraint=False, add_slack=False)
-controller_knmpc_cl = BilinearMPCController(kbf_d, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, solver_settings_cl, terminal_constraint=False, add_slack=False)
+controller_lmpc_cl = MPCController(linearized_sys, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, terminal_constraint=False, add_slack=True)
+controller_knmpc_cl = BilinearMPCController(kbf_d, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, terminal_constraint=False, add_slack=True)
 controller_knmpc_cl.construct_controller(controller_knmpc.cur_z[:N_cl+1,:], controller_knmpc.cur_u[:N_cl,:])
-controller_nmpc_cl = NonlinearMPCController(finite_dim_koop_sys_d, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, solver_settings_cl, terminal_constraint=False)
+controller_nmpc_cl = NonlinearMPCController(finite_dim_koop_sys_d, N_cl, dt, umin, umax, xmin, xmax, Q_mpc_cl, R_mpc_cl, QN_mpc_cl, set_pt, terminal_constraint=False)
 controller_nmpc_cl.construct_controller(controller_nmpc.cur_z[:N_cl+1,:], controller_nmpc.cur_u[:N_cl,:])
 
 
-# In[16]:
+# In[14]:
 
 
-controller_knmpc_cl.solve_to_convergence(z0, 0., controller_knmpc.cur_z[:N_cl+1,:], controller_knmpc.cur_u[:N_cl,:], max_iter=max_iter_sqp)
-controller_nmpc_cl.solve_to_convergence(x0, 0., controller_nmpc.cur_z[:N_cl+1,:], controller_nmpc.cur_u[:N_cl,:], max_iter=max_iter_sqp)
-controller_knmpc_cl.comp_time, controller_knmpc_cl.prep_time, controller_knmpc_cl.qp_time,  = [], [], []
-controller_nmpc_cl.comp_time, controller_nmpc_cl.prep_time, controller_nmpc_cl.qp_time,  = [], [], []
-
-
-# In[17]:
-
-
-solver_settings_cl['polish'] = False
-solver_settings_cl['check_termination'] = 1
-solver_settings_cl['max_iter'] = 1
-solver_settings_cl['eps_abs'] = 1e-3
-solver_settings_cl['eps_rel'] = 1e-3
-controller_nmpc_cl.update_solver_settings(solver_settings_cl)
-controller_knmpc_cl.update_solver_settings(solver_settings_cl)
+controller_knmpc_cl.solve_to_convergence(z0, 0., controller_knmpc.cur_z[:N_cl+1,:], controller_knmpc.cur_u[:N_cl,:], max_iter=max_iter)
+controller_nmpc_cl.solve_to_convergence(x0, 0., controller_nmpc.cur_z[:N_cl+1,:], controller_nmpc.cur_u[:N_cl,:], max_iter=max_iter)
 
 
 # #### Simulate designed trajectories closed-loop
 
-# In[18]:
-
+# In[15]:
 
 xs_lmpc_cl, us_lmpc_cl = finite_dim_koop_sys.simulate(x0, controller_lmpc_cl, t_eval)
 xs_lmpc_cl, us_lmpc_cl = xs_lmpc_cl.T, us_lmpc_cl.T
@@ -588,8 +540,7 @@ xs_nmpc_cl, us_nmpc_cl = xs_nmpc_cl.T, us_nmpc_cl.T
 
 # #### Plot/analyze the results
 
-# In[19]:
-
+# In[16]:
 
 plot_inds = [0, 2, 1, 3, 0, 1]
 subplot_inds = [1, 2, 4, 5, 3, 6]
@@ -640,17 +591,7 @@ print(tabulate([['Linear MPC', cost_cl_lmpc/cost_cl_nmpc, np.mean(controller_lmp
                headers=['Quadratic cost\n(normalized)', 'Mean comp. time per\niteration (secs)', 'Std comp. time per\niteration (secs)']))
 
 
-# In[20]:
-
-
 print('\nSolution time profiling:\n')
 print(tabulate([['NMPC', np.mean(controller_nmpc_cl.comp_time), np.mean(controller_nmpc_cl.prep_time), np.mean(controller_nmpc_cl.qp_time)],
                 ['Koopman bilinear MPC', np.mean(controller_knmpc_cl.comp_time), np.mean(controller_knmpc_cl.prep_time), np.mean(controller_knmpc_cl.qp_time)]],
                headers=['Total comp time', 'setup time', 'qp solve time' ]))
-
-
-# In[ ]:
-
-
-
-
