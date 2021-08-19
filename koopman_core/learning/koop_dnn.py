@@ -4,8 +4,8 @@ import torch.optim as optim
 from torch.utils.data import random_split
 from torch.nn.utils import prune
 from ray import tune
-from koopman_core.learning.utils import ThresholdPruning
-from koopman_core.learning import KoopmanNetCtrl
+from .utils import ThresholdPruning
+from . import KoopmanNetCtrl
 import os
 
 class KoopDnn():

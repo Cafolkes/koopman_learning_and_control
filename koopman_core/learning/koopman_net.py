@@ -17,7 +17,7 @@ class KoopmanNet(nn.Module):
         self.x_running_var = None
 
         if self.net_params['override_C']:
-            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['state_dim'] + \
+            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['n_fixed_states'] + \
                          self.net_params['encoder_output_dim']
         else:
             self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['encoder_output_dim']
@@ -46,10 +46,13 @@ class KoopmanNet(nn.Module):
     def loss(self, outputs, labels):
         # output = [x_pred, x_prime_pred, lin_error]
         # labels = [x, x_prime], penalize when lin_error is not zero
-        n = self.net_params['state_dim']
+        override_c = self.net_params['override_C']
+        if override_c:
+            n = self.net_params['n_fixed_states']
+        else:
+            n = self.net_params['state_dim']
         n_z = self.net_params['encoder_output_dim']
         n_override_kinematics = int(n/2)*int(self.net_params['override_kinematics'])
-        override_c = self.net_params['override_C']
 
         #x_prime_diff_pred = outputs[:, n_override_kinematics:n]
         #x_prime_diff = labels[:, n_override_kinematics:]
@@ -71,7 +74,7 @@ class KoopmanNet(nn.Module):
         #pred_loss = criterion(x_prime_pred, x_prime)
         if override_c:
             pred_loss = criterion(x_prime_diff_pred,
-                                  torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:]))
+                                  torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:n]))
         else:
             pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler_z)
 
@@ -137,11 +140,15 @@ class KoopmanNet(nn.Module):
     def encode(self, x):
         first_obs_const = int(self.net_params['first_obs_const'])
         override_C = self.net_params['override_C']
+        if override_C:
+            n = self.net_params['n_fixed_states']
+        else:
+            n = self.net_params['state_dim']
 
         self.eval()
         x_t = torch.from_numpy(x).float()
         if override_C:
-            z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x, self.encode_forward_(x_t).detach().numpy()), axis=1)
+            z = np.concatenate((np.ones((x.shape[0], first_obs_const)), x[:, :n], self.encode_forward_(x_t).detach().numpy()), axis=1)
         else:
             z = np.concatenate((np.ones((x.shape[0], first_obs_const)), self.encode_forward_(x_t).detach().numpy()),  axis=1)
 

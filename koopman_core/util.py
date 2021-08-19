@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import random as rand
-from core.dynamics import ConfigurationDynamics
-from core.controllers import ConstantController, PDController
-from koopman_core.controllers import PerturbedController, OpenLoopController
+from ..core.dynamics import ConfigurationDynamics
+from ..core.controllers import ConstantController, PDController
+from ..koopman_core.controllers import PerturbedController, OpenLoopController
 
 class KoopPdOutput(ConfigurationDynamics):
     def __init__(self, dynamics, xd, n, m):
@@ -62,40 +62,63 @@ def run_experiment(system, n, n_traj, n_pred, t_eval, x0_max, plot_experiment_da
     else:
         return xs, us, t_eval
 
-def evaluate_ol_pred(sys, xs, t_eval, us=None):
+def evaluate_ol_pred(sys, xs, t_eval, us=None, n_eval_states=None):
     n_traj = xs.shape[0]
+    traj_length = xs.shape[1]
     n = xs.shape[2]
+    if n_eval_states is None:
+        n_eval_states = n
 
     if us is not None:
         us_scaled = us.copy()
-    xs_pred = np.empty((n_traj, t_eval.shape[0]-1, n))
+    xs_pred = np.empty((n_traj, traj_length-1, n_eval_states))
     for ii in range(n_traj):
         if us is None:
             ctrl = ConstantController(sys, 0.)
         else:
             if sys.standardizer_u is not None:
                 us_scaled[ii, :, :] = sys.standardizer_u.transform(us[ii, :, :])
-            ctrl = OpenLoopController(sys, us_scaled[ii, :, :], t_eval[:-1])
+            ctrl = OpenLoopController(sys, us_scaled[ii, :, :], t_eval[ii, :-1])
 
         x0 = xs[ii, 0, :]
         z0 = sys.basis(np.atleast_2d(x0)).squeeze()
-        zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[:-1])
+        zs_tmp, _ = sys.simulate(z0, ctrl, t_eval[ii, :-1])
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T
 
-        if sys.standardizer_x is not None:
-            xs_pred[ii, :, :] = sys.standardizer_x.inverse_transform(xs_pred[ii, :, :])
-            if sys.standardizer_x.with_mean:
-                xs_pred[ii,: , :int(n/2)] += np.multiply(t_eval[:-1], sys.standardizer_x.mean_[int(n/2):].reshape(-1,1)).T
+        # TODO: Evaluate need for standardization
+        #if sys.standardizer_x is not None:
+        #    xs_pred[ii, :, :] = sys.standardizer_x.inverse_transform(xs_pred[ii, :, :])
+        #    if sys.standardizer_x.with_mean:
+        #        xs_pred[ii,: , :int(n/2)] += np.multiply(t_eval[:-1], sys.standardizer_x.mean_[int(n/2):].reshape(-1,1)).T
 
-    error = xs[:, :-1, :] - xs_pred
+    error = xs[:, :-1, :xs_pred.shape[2]] - xs_pred
     mse = np.mean(np.square(error))
     std = np.std(error)
 
     return error, mse, std
 
-def fit_standardizer(data, standardizer):
-    n_traj, traj_length, n = data.shape
-    data_flat = data.T.reshape((n, n_traj * traj_length), order='F')
-    standardizer.fit(data_flat.T)
+def fit_standardizer(data, standardizer, flattened=False):
+    if flattened:
+        data_flat = data
+    else:
+        n_traj, traj_length, n = data.shape
+        data_flat = data.T.reshape((n, n_traj * traj_length), order='F').T
+
+    standardizer.fit(data_flat)
 
     return standardizer
+
+def split_dataset(x_test, u_test, t_test, dataset_length):
+    x_tests, u_tests, t_tests = [], [], []
+    for x, u, t in zip(x_test, u_test, t_test):
+        cur_index = 0
+        while cur_index+dataset_length < t.shape[0]:
+            x_tests.append(x[cur_index:cur_index+dataset_length, :])
+            u_tests.append(u[cur_index:cur_index + dataset_length-1, :])
+            t_tests.append(t[cur_index:cur_index + dataset_length] - t[cur_index])
+            cur_index += dataset_length
+
+    return np.array(x_tests), np.array(u_tests), np.array(t_tests)
+
+
+

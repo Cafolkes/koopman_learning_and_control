@@ -66,7 +66,11 @@ class NMPCTrajController(Controller):
         self.ns = self.C_x.shape[0]
         if self.xr.ndim==2:
             # Add copies of the final state in the desired trajectory to enable prediction beyond trajectory horizon:
-            self.xr = np.hstack([self.xr, np.transpose(np.tile(self.xr[:, -1], (self.N + 1, 1)))])
+            if self.xr.shape[0] == self.ns:
+                xr_tail = np.vstack((np.tile(self.xr[:int(self.ns/2), -1], (self.N + 1, 1)).T, np.zeros((int(self.ns/2), self.N+1))))
+            else:
+                xr_tail = np.tile(self.xr[:, -1], (self.N + 1, 1)).T
+            self.xr = np.hstack((self.xr, xr_tail))
         self.terminal_constraint = terminal_constraint
 
         self.add_slack = add_slack
@@ -191,9 +195,9 @@ class NMPCTrajController(Controller):
             dz = self.dz_flat.reshape(self.nx, self.N + 1, order='F')
             du = self.du_flat.reshape(self.nu, self.N, order='F')
 
-            alpha = min(1., iter/min_iter + 1/min_iter)
-
-            print(alpha)
+            #alpha = min(1., iter/min_iter + 1/min_iter)
+            alpha = 1.
+            #print(alpha)
             self.cur_z = self.z_init + alpha * dz
             self.cur_u = self.u_init + alpha * du
             self.u_init_flat = self.u_init_flat + alpha * self.du_flat

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from koopman_core.learning import KoopmanNet
+from . import KoopmanNet
 import numpy as np
 
 class KoopmanNetCtrl(KoopmanNet):
@@ -12,8 +12,9 @@ class KoopmanNetCtrl(KoopmanNet):
         m = self.net_params['ctrl_dim']
         encoder_output_dim = self.net_params['encoder_output_dim']
         first_obs_const = int(self.net_params['first_obs_const'])
+        n_fixed_states = self.net_params['n_fixed_states']
 
-        self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, encoder_output_dim))), 1)
+        #self.C = torch.cat((torch.zeros((n_fixed_states, first_obs_const)), torch.eye(n_fixed_states), torch.zeros((n_fixed_states, encoder_output_dim))), 1)
         self.construct_encoder_()
         if self.net_params['override_kinematics']:
             self.koopman_fc_drift = nn.Linear(self.n_tot, self.n_tot-(first_obs_const + int(n/2)), bias=False)
@@ -23,7 +24,9 @@ class KoopmanNetCtrl(KoopmanNet):
             self.koopman_fc_act = nn.Linear(m*self.n_tot, self.n_tot-first_obs_const, bias=False)
 
         if self.net_params['override_C']:
-            self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, encoder_output_dim))), 1)
+            #self.C = torch.cat((torch.zeros((n, first_obs_const)), torch.eye(n), torch.zeros((n, encoder_output_dim))), 1)
+            self.C = torch.cat((torch.zeros((n_fixed_states, first_obs_const)), torch.eye(n_fixed_states),
+                                torch.zeros((n_fixed_states, encoder_output_dim))), 1)
         else:
             self.projection_fc = nn.Linear(self.n_tot, n, bias=False)
 
@@ -36,6 +39,7 @@ class KoopmanNetCtrl(KoopmanNet):
         m = self.net_params['ctrl_dim']
         first_obs_const = int(self.net_params['first_obs_const'])
         override_C = self.net_params['override_C']
+        n_fixed_states = self.net_params['n_fixed_states']
 
         x = data[:, :n]
         u = data[:, n:n+m]
@@ -43,8 +47,10 @@ class KoopmanNetCtrl(KoopmanNet):
 
         # Define linearity networks:
         if override_C:
-            z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), x, self.encode_forward_(x)), 1)
-            z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const+n:]
+            z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device),
+                           x[:, :n_fixed_states],
+                           self.encode_forward_(x)), 1)
+            z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const+n_fixed_states:]
         else:
             z = torch.cat((torch.ones((x.shape[0], first_obs_const), device=self.device), self.encode_forward_(x)), 1)
             z_prime_diff = self.encode_forward_(x_prime) - z[:, first_obs_const:]
@@ -62,7 +68,7 @@ class KoopmanNetCtrl(KoopmanNet):
             #x_prime_pred = torch.matmul(z + z_prime_diff_pred * self.loss_scaler, torch.transpose(self.C, 0, 1))
             x_proj = torch.matmul(z, torch.transpose(self.C, 0, 1))
             x_prime_diff_pred = torch.matmul(z_prime_diff_pred, torch.transpose(self.C, 0, 1))
-            z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const + n:]
+            z_prime_diff_pred = z_prime_diff_pred[:, first_obs_const + n_fixed_states:]
         else:
             # x_prime_pred = self.projection_fc(z + z_prime_diff_pred*dt)
             x_proj = self.projection_fc(z)
@@ -121,6 +127,7 @@ class KoopmanNetCtrl(KoopmanNet):
     def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
+        n_fixed_states = self.net_params['n_fixed_states']
         n_traj = data_x.shape[0]
 
         data_scaled_x = self.preprocess_data(data_x, self.standardizer_x)
@@ -139,7 +146,7 @@ class KoopmanNetCtrl(KoopmanNet):
         #y = x_prime_flat.T
         y = np.concatenate((x_flat.T, x_prime_flat.T - x_flat.T), axis=1)
 
-        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0))
+        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
         self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]

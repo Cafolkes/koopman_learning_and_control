@@ -11,7 +11,7 @@ class BilinearMPCController(NonlinearMPCController):
     Quadratic programs are solved using OSQP.
     """
 
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
                  terminal_constraint=False, add_slack=False, q_slack=1e-4, standardizer_x=None, standardizer_u=None):
 
         const_offset = None
@@ -25,7 +25,7 @@ class BilinearMPCController(NonlinearMPCController):
             xmax = standardizer_x.transform(xmax.reshape(1,-1)).squeeze()
             xr = standardizer_x.transform(xr.reshape(1,-1)).squeeze()
 
-        super(BilinearMPCController, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr,
+        super(BilinearMPCController, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, Q, R, QN, xr, solver_settings,
                                         const_offset=const_offset,
                                         terminal_constraint=terminal_constraint,
                                         add_slack=add_slack,
