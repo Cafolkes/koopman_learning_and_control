@@ -222,22 +222,23 @@ class NMPCTrajController(Controller):
         """
         t0 = time.time()
         z = self.dynamics_object.lift(x.reshape((1, -1)), None).squeeze()
-        self.update_initial_guess_()
-        self.update_objective_(t)
-        A_lst, B_lst = self.update_linearization_()
-        self.update_constraint_matrix_data_(A_lst, B_lst)
         self.update_constraint_vecs_(z, t)
-        t_prep = time.time() - t0
 
         self.solve_mpc_()
         self.cur_z = self.z_init + self.dz_flat.reshape(self.nx, self.N + 1, order='F')
         self.cur_u = self.u_init + self.du_flat.reshape(self.nu, self.N, order='F')
         self.u_init_flat = self.u_init_flat + self.du_flat
         self.comp_time.append(time.time() - t0)
-        self.prep_time.append(t_prep)
-        self.qp_time.append(self.comp_time[-1] - t_prep)
 
         return self.cur_u[:, 0]
+
+    def prepare_eval(self, t):
+        t0 = time.time()
+        self.update_initial_guess_()  # TODO: Move out
+        self.update_objective_(t)  # TODO: Move out
+        A_lst, B_lst = self.update_linearization_()  # TODO: Move out
+        self.update_constraint_matrix_data_(A_lst, B_lst)  # TODO: Move out
+        self.prep_time.append(time.time() - t0)
 
     def construct_objective_(self):
         """
