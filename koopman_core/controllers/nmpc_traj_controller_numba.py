@@ -156,7 +156,7 @@ class NMPCTrajControllerNb(Controller):
         self.dz_flat = self.z_init.flatten(order='F')
         self.du_flat = self.u_init.flatten(order='F')
 
-        self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
+        #self.warm_start = np.zeros(self.nx*(self.N+1) + self.nu*self.N)
 
         A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
         B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
@@ -291,6 +291,7 @@ class NMPCTrajControllerNb(Controller):
         self.update_objective_(t)
         self.update_linearization_()
         self.update_constraint_matrix_data_()
+        #self.prob.warm_start(x=self.warm_start)
         self.prep_time.append(time.time() - t0)
 
     def construct_objective_(self):
@@ -550,13 +551,13 @@ class NMPCTrajControllerNb(Controller):
         self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
-        du_new = self.du_flat[-self.nu:]
-        dz_last = self.dz_flat[-self.nx:]
-        dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
-        self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
-        self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
-        self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
-        self.warm_start[-self.nu:] = du_new
+        #du_new = self.du_flat[-self.nu:]
+        #dz_last = self.dz_flat[-self.nx:]
+        #dz_new = self.dynamics_object.eval_dot(dz_last, du_new, None)
+        #self.warm_start[:self.nx*self.N] = self.dz_flat[self.nx:]
+        #self.warm_start[self.nx*self.N:self.nx*(self.N+1)] = dz_new
+        #self.warm_start[self.nx*(self.N+1):-self.nu] = self.du_flat[self.nu:]
+        #self.warm_start[-self.nu:] = du_new
 
     def update_linearization_(self):
         """
