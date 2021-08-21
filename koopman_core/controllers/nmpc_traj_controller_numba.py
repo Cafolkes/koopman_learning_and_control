@@ -4,12 +4,55 @@ import numpy as np
 import osqp
 from scipy import sparse
 import importlib
+from numba import njit
 
 from ...core.controllers.controller import Controller
 from ..dynamics import BilinearLiftedDynamics
 
 
-class NMPCTrajController(Controller):
+@njit(fastmath=True, cache=True)
+def _update_objective(C_obj, Q, QN, R, xr, z_init, u_init, const_offset):
+    """
+    Construct MPC objective function
+    :return:
+    """
+    return np.hstack(
+        ((C_obj.T @ Q @ (C_obj @ z_init[:, :-1] - xr[:, :-1])).T.flatten(),
+         C_obj.T @ QN @ (C_obj @ z_init[:, -1] - xr[:, -1]),
+         (R @ (u_init + const_offset)).T.flatten()))
+
+@njit(fastmath=True, cache=True)
+def _update_constraint_vecs(osqp_l, osqp_u, z, z_init, x_init_flat, xr, xmin_tiled, xmax_tiled,
+                            u_init_flat, umin_tiled, umax_tiled, r_vec, nx, ns, N, n_opt_x, n_opt_x_u, terminal_constraint):
+    # Equality constraints:
+    osqp_l[:nx] = -(z - z_init[0, :])
+    osqp_l[nx:nx * (N + 1)] = -r_vec
+
+    osqp_u[:nx * (N + 1)] = osqp_l[:nx * (N + 1)]
+
+    # Input constraints:
+    osqp_l[n_opt_x:n_opt_x_u] = umin_tiled - u_init_flat
+    osqp_u[n_opt_x:n_opt_x_u] = umax_tiled - u_init_flat
+
+    # State constraints:
+    osqp_l[n_opt_x_u:] = xmin_tiled - x_init_flat
+    osqp_u[n_opt_x_u:] = xmax_tiled - x_init_flat
+
+    if terminal_constraint:
+        osqp_l[-ns:] = xr - x_init_flat[-ns:]
+        osqp_u[-ns:] = osqp_l[-ns:]
+
+    return osqp_l, osqp_u
+
+@njit(fastmath=True, cache=True)
+def _update_current_sol(z_init, dz_flat, u_init, du_flat, u_init_flat, nx, nu, N):
+    cur_z = z_init + dz_flat.reshape(N + 1, nx).T
+    cur_u = u_init + du_flat.reshape(N, nu).T
+    u_init_flat = u_init_flat + du_flat
+
+    return cur_z, cur_u, u_init_flat
+
+class NMPCTrajControllerNb(Controller):
     """
     Class for nonlinear MPC with control-affine dynamics.
 
@@ -87,6 +130,13 @@ class NMPCTrajController(Controller):
 
         self.sub_traj = []
 
+        # Define dense copies of problem matrices for numba implementation:
+        self.C_obj_dense = self.C_obj.toarray().astype(float)
+        self.Q_dense = self.Q.toarray()
+        self.QN_dense = self.QN.toarray()
+        self.R_dense = self.R.toarray()
+        self.const_offset_dense = np.tile(self.const_offset, (1, self.N))
+
     def construct_controller(self, z_init, u_init):
         """
         Construct NMPC controller.
@@ -110,8 +160,9 @@ class NMPCTrajController(Controller):
 
         A_lst = [np.ones((self.nx, self.nx)) for _ in range(self.N)]
         B_lst = [np.ones((self.nx, self.nu)) for _ in range(self.N)]
-        r_lst = [np.ones(self.nx) for _ in range(self.N)]
-        self.r_vec = np.array(r_lst).flatten()
+        self.A_stacked = np.hstack(A_lst).flatten(order='F')
+        self.B_stacked = np.hstack(B_lst).flatten(order='F')
+        self.r_vec = np.array([np.ones(self.nx) for _ in range(self.N)]).flatten()
 
         self.construct_objective_()
         self.construct_constraint_vecs_(z0, None)
@@ -183,12 +234,14 @@ class NMPCTrajController(Controller):
             self.u_init = self.cur_u.copy()
 
             # Update equality constraint matrices:
-            A_lst, B_lst = self.update_linearization_()
+            #A_lst, B_lst = self.update_linearization_()
+            self.update_linearization_()
 
             # Solve MPC Instance
             self.update_objective_(t)
             self.construct_constraint_vecs_(z, None)
-            self.update_constraint_matrix_data_(A_lst, B_lst)
+            #self.update_constraint_matrix_data_(A_lst, B_lst)
+            self.update_constraint_matrix_data_()
             t_prep = time.time() - t0
 
             self.solve_mpc_()
@@ -225,9 +278,9 @@ class NMPCTrajController(Controller):
         self.update_constraint_vecs_(z, t)
 
         self.solve_mpc_()
-        self.cur_z = self.z_init + self.dz_flat.reshape(self.nx, self.N + 1, order='F')
-        self.cur_u = self.u_init + self.du_flat.reshape(self.nu, self.N, order='F')
-        self.u_init_flat = self.u_init_flat + self.du_flat
+        self.cur_z, self.cur_u, self.u_init_flat = _update_current_sol(self.z_init, self.dz_flat, self.u_init,
+                                                                       self.du_flat, self.u_init_flat, self.nx, self.nu,
+                                                                       self.N)
         self.comp_time.append(time.time() - t0)
 
         return self.cur_u[:, 0]
@@ -236,8 +289,8 @@ class NMPCTrajController(Controller):
         t0 = time.time()
         self.update_initial_guess_()
         self.update_objective_(t)
-        A_lst, B_lst = self.update_linearization_()
-        self.update_constraint_matrix_data_(A_lst, B_lst)
+        self.update_linearization_()
+        self.update_constraint_matrix_data_()
         self.prep_time.append(time.time() - t0)
 
     def construct_objective_(self):
@@ -284,11 +337,9 @@ class NMPCTrajController(Controller):
         tindex = int(t/self.dt)
         xr = self.xr[:, tindex:tindex+self.N+1]
 
-        # TODO: Change with direct memory allocation:
-        self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = np.hstack(
-            [(self.C_obj.T @ self.Q @ (self.C_obj @ self.z_init[:, :-1] - xr[:,:-1])).flatten(order='F'),
-             self.C_obj.T @ self.QN @ (self.C_obj @ self.z_init[:, -1] - xr[:,-1]),
-             (self.R @ (self.u_init + self.const_offset)).flatten(order='F')])
+        self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = \
+            _update_objective(self.C_obj_dense, self.Q_dense, self.QN_dense, self.R_dense, xr, self.z_init, self.u_init,
+                              self.const_offset_dense)
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         """
@@ -380,15 +431,17 @@ class NMPCTrajController(Controller):
         self._osqp_A_data_A_inds = np.array(A_inds).flatten().tolist()
         self._osqp_A_data_B_inds = np.array(B_inds).flatten().tolist()
 
-    def update_constraint_matrix_data_(self, A_lst, B_lst):
+    def update_constraint_matrix_data_(self):
         """
         Manually update csc_matrix.data array
         :param A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
         :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         :return:
         """
-        self._osqp_A_data[self._osqp_A_data_A_inds] = np.hstack(A_lst).flatten(order='F')
-        self._osqp_A_data[self._osqp_A_data_B_inds] = np.hstack(B_lst).flatten(order='F')
+        #self._osqp_A_data[self._osqp_A_data_A_inds] = self.A_stacked.flatten(order='F')
+        #self._osqp_A_data[self._osqp_A_data_B_inds] = self.B_stacked.flatten(order='F')
+        self._osqp_A_data[self._osqp_A_data_A_inds] = self.A_stacked
+        self._osqp_A_data[self._osqp_A_data_B_inds] = self.B_stacked
 
     def construct_constraint_vecs_(self, z, t):
         """
@@ -473,8 +526,8 @@ class NMPCTrajController(Controller):
             self.dz_flat = self.res.x[:(self.N + 1) * self.nx]
             self.du_flat = self.res.x[(self.N + 1) * self.nx:(self.N + 1) * self.nx + self.nu * self.N]
 
-        #if self.res.info.status != 'solved':
-        #    raise ValueError('OSQP did not solve the problem!', self.res.info.status)
+#        if self.res.info.status != 'solved':
+#            raise ValueError('OSQP did not solve the problem!', self.res.info.status)
 
     def update_initial_guess_(self):
         """
@@ -494,7 +547,7 @@ class NMPCTrajController(Controller):
         self.u_init_flat[-self.nu:] = u_new
 
         self.x_init = self.C_x @ self.z_init
-        self.x_init_flat = self.x_init.flatten(order='F') # TODO: Check flatten
+        self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
         du_new = self.du_flat[-self.nu:]
@@ -511,24 +564,19 @@ class NMPCTrajController(Controller):
         :return: A_lst: (list(np.array)) List of dynamics matrices, A, for each timestep in the prediction horizon
                  B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         """
-        A_lst, B_lst, r_lst = [], [], []
         for ii in range(self.N):
-            a, b, r = self.dynamics_object.get_linearization(self.z_init[:, ii], self.z_init[:, ii+1],
+            a, b, r = self.dynamics_object.get_linearization(self.z_init[:, ii], self.z_init[:, ii + 1],
                                                              self.u_init[:, ii], None)
-            A_lst.append(a)
-            B_lst.append(b)
-            r_lst.append(r)
-
-        self.r_vec = np.array(r_lst).flatten()
-        return A_lst, B_lst
+            self.A_stacked[ii*self.nx**2:(ii+1)*self.nx**2] = a.flatten(order='F')
+            self.B_stacked[ii * self.nx *self.nu:(ii + 1) * self.nx*self.nu] = b.flatten(order='F')
+            self.r_vec[ii*self.nx:(ii+1)*self.nx] = r
 
     def construct_embedded_controller(self):
         try:
             self.prob_embed = importlib.import_module(self.embed_pkg_str)
         except ModuleNotFoundError:
             file_path = os.path.dirname(os.path.realpath(__file__)) + '/embedded_controllers/' + self.embed_pkg_str
-            #self.prob.codegen(file_path, parameters='matrices', python_ext_name=self.embed_pkg_str, force_rewrite=True, LONG=False)
-            self.prob.codegen(file_path, parameters='matrices', python_ext_name=self.embed_pkg_str, force_rewrite=True, project_type='Xcode')
+            self.prob.codegen(file_path, parameters='matrices', python_ext_name=self.embed_pkg_str, force_rewrite=True)
             self.prob_embed = importlib.import_module(self.embed_pkg_str)
 
     def get_state_prediction(self):
@@ -544,3 +592,14 @@ class NMPCTrajController(Controller):
         :return: U (np.array) current control prediction
         """
         return self.cur_u
+
+    def initialize_numba(self, x, t):
+        """
+        Initialize Numba compilation of online controller components:
+        """
+
+        self.prepare_eval(0.)
+        self.eval(x, t)
+        self.comp_time = []
+        self.prep_time = []
+
