@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import random as rand
+from sklearn import preprocessing
 from ..core.dynamics import ConfigurationDynamics
 from ..core.controllers import ConstantController, PDController
 from ..koopman_core.controllers import PerturbedController, OpenLoopController
@@ -86,10 +87,19 @@ def evaluate_ol_pred(sys, xs, t_eval, us=None, n_eval_states=None):
         xs_pred[ii, :, :] = np.dot(sys.C, zs_tmp.T).T
 
         # TODO: Evaluate need for standardization
-        #if sys.standardizer_x is not None:
-        #    xs_pred[ii, :, :] = sys.standardizer_x.inverse_transform(xs_pred[ii, :, :])
-        #    if sys.standardizer_x.with_mean:
-        #        xs_pred[ii,: , :int(n/2)] += np.multiply(t_eval[:-1], sys.standardizer_x.mean_[int(n/2):].reshape(-1,1)).T
+        if sys.standardizer_x is not None:
+            if n_eval_states is not None:
+                standardizer_x = preprocessing.StandardScaler()
+                standardizer_x.n_features_in_ = n_eval_states
+                standardizer_x.scale_ = sys.standardizer_x.scale_[:n_eval_states]
+                standardizer_x.var_ = sys.standardizer_x.var_[:n_eval_states]
+                standardizer_x.mean_ = sys.standardizer_x.mean_[:n_eval_states]
+            else:
+                standardizer_x = sys.standardizer_x
+
+            xs_pred[ii, :, :] = standardizer_x.inverse_transform(xs_pred[ii, :, :])
+            #if sys.standardizer_x.with_mean:
+            #    xs_pred[ii,: , :int(n/2)] += np.multiply(t_eval[ii, :-1], sys.standardizer_x.mean_[int(n/2):].reshape(-1,1)).T
 
     error = xs[:, :-1, :xs_pred.shape[2]] - xs_pred
     mse = np.mean(np.square(error))
