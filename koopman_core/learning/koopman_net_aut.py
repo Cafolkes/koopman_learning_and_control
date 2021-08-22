@@ -11,6 +11,16 @@ class KoopmanNetAut(KoopmanNet):
         n = self.net_params['state_dim']
         encoder_output_dim = self.net_params['encoder_output_dim']
         first_obs_const = int(self.net_params['first_obs_const'])
+        n_fixed_states = self.net_params['n_fixed_states']
+        override_C = self.net_params['override_C']
+        override_kinematics = self.net_params['override_kinematics']
+
+        if override_C:
+            self.n_tot = int(first_obs_const) + n_fixed_states + encoder_output_dim
+        else:
+            self.n_tot = int(first_obs_const) + encoder_output_dim
+            assert override_kinematics is False, \
+                'Not overriding C while overriding kinematics not supported'
 
         self.construct_encoder_()
         if self.net_params['override_kinematics']:

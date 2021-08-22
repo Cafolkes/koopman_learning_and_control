@@ -16,14 +16,6 @@ class KoopmanNet(nn.Module):
         self.x_running_mean = None
         self.x_running_var = None
 
-        if self.net_params['override_C']:
-            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['n_fixed_states'] + \
-                         self.net_params['encoder_output_dim']
-        else:
-            self.n_tot = int(self.net_params['first_obs_const']) + self.net_params['encoder_output_dim']
-            assert self.net_params['override_kinematics'] is False, \
-                'Not overriding C while overriding kinematics not supported'
-
         self.device = torch.device('cpu')
         if torch.cuda.is_available():
             self.device = torch.device('cuda:0')
