@@ -132,7 +132,11 @@ class KoopmanNetCtrl(KoopmanNet):
             self.C = self.C.to(device)
         else:
             self.projection_fc.to(device)
-        self.loss_scaler_x.to(self.device)
+
+        try:
+            self.loss_scaler_x = self.loss_scaler_x.to(device)
+        except:
+            pass
 
     def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']

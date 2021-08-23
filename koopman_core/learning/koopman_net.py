@@ -35,7 +35,7 @@ class KoopmanNet(nn.Module):
     def construct_dyn_mat(self):
         pass
 
-    def loss(self, outputs, labels):
+    def loss(self, outputs, labels, test=False):
         # output = [x_pred, x_prime_pred, lin_error]
         # labels = [x, x_prime], penalize when lin_error is not zero
         override_c = self.net_params['override_C']
@@ -64,11 +64,12 @@ class KoopmanNet(nn.Module):
 
         #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         #pred_loss = criterion(x_prime_pred, x_prime)
-        if override_c:
-            pred_loss = criterion(x_prime_diff_pred,
-                                  torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:n]))
-        else:
-            pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler_z)
+        if test is False:
+            if override_c:
+                pred_loss = criterion(x_prime_diff_pred,
+                                      torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:n]))
+            else:
+                pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler_z)
 
 
         #lin_loss = criterion(z_prime_diff_pred, z_prime_diff/dt)/n_z
