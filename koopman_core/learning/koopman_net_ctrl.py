@@ -132,6 +132,7 @@ class KoopmanNetCtrl(KoopmanNet):
             self.C = self.C.to(device)
         else:
             self.projection_fc.to(device)
+        self.loss_scaler_x.to(self.device)
 
     def process(self, data_x, t, data_u=None, downsample_rate=1):
         n = self.net_params['state_dim']
@@ -155,7 +156,7 @@ class KoopmanNetCtrl(KoopmanNet):
         #y = x_prime_flat.T
         y = np.concatenate((x_flat.T, x_prime_flat.T - x_flat.T), axis=1)
 
-        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0), device=self.device)
+        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
         #self.loss_scaler_z = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0), device=self.device)
         self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
