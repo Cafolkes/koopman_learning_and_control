@@ -11,15 +11,19 @@ from ..dynamics import BilinearLiftedDynamics
 
 
 @njit(fastmath=True, cache=True)
-def _update_objective(C_obj, Q, QN, R, xr, z_init, u_init, const_offset):
+def _update_objective(C_obj, Q, QN, R, R0, xr, z_init, u_init, const_offset, u_prev, N, nx, nu):
     """
     Construct MPC objective function
     :return:
     """
-    return np.hstack(
+    res = np.hstack(
         ((C_obj.T @ Q @ (C_obj @ z_init[:, :-1] - xr[:, :-1])).T.flatten(),
          C_obj.T @ QN @ (C_obj @ z_init[:, -1] - xr[:, -1]),
          (R @ (u_init + const_offset)).T.flatten()))
+
+    # Jitter regularization linear objective:
+    res[(N+1)*nx:(N+1)*nx + nu] -= R0 @ u_prev
+    return res
 
 @njit(fastmath=True, cache=True)
 def _update_constraint_vecs(osqp_l, osqp_u, z, z_init, x_init_flat, xr, xmin_tiled, xmax_tiled,
@@ -59,7 +63,7 @@ class NMPCTrajControllerNb(Controller):
     Quadratic programs are solved using OSQP.
     """
 
-    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, C_x, C_obj, Q, R, QN, xr, solver_settings, const_offset=None,
+    def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, C_x, C_obj, Q, R, QN, R0, xr, solver_settings, const_offset=None,
                  terminal_constraint=False, add_slack=False, q_slack=1e3):
         """
         Initialize the nonlinear mpc class.
@@ -94,6 +98,7 @@ class NMPCTrajControllerNb(Controller):
         self.Q = Q
         self.QN = QN
         self.R = R
+        self.R0 = R0
         self.N = N
         self.xmin = xmin
         self.xmax = xmax
@@ -135,6 +140,7 @@ class NMPCTrajControllerNb(Controller):
         self.Q_dense = self.Q.toarray()
         self.QN_dense = self.QN.toarray()
         self.R_dense = self.R.toarray()
+        self.R0_dense = self.R0.toarray()
         self.const_offset_dense = np.tile(self.const_offset, (1, self.N))
 
     def construct_controller(self, z_init, u_init):
@@ -311,6 +317,10 @@ class NMPCTrajControllerNb(Controller):
                                               sparse.kron(sparse.eye(self.N), self.R),
                                               self.Q_slack], format='csc')
 
+        # Jitter regularization quadratic objective:
+        ind_start_control = (self.N+1)*self.nx
+        self._osqp_P[ind_start_control:ind_start_control+self.nu, ind_start_control:ind_start_control+self.nu] += 0.5*self.R0
+
         # Linear objective:
         if self.xr.ndim==2:
             xr = self.xr[:,:self.N + 1]
@@ -330,6 +340,9 @@ class NMPCTrajControllerNb(Controller):
                  (self.R @ (self.u_init + self.const_offset)).flatten(order='F'),
                  np.zeros(self.ns * (self.N))])
 
+        # Jitter regularization linear objective:
+        self._osqp_q[ind_start_control:ind_start_control+self.nu] -= self.R0 @ self.cur_u[:, 0]
+
     def update_objective_(self, t):
         """
         Construct MPC objective function
@@ -339,8 +352,8 @@ class NMPCTrajControllerNb(Controller):
         xr = self.xr[:, tindex:tindex+self.N+1]
 
         self._osqp_q[:self.nx * (self.N + 1) + self.nu * self.N] = \
-            _update_objective(self.C_obj_dense, self.Q_dense, self.QN_dense, self.R_dense, xr, self.z_init, self.u_init,
-                              self.const_offset_dense)
+            _update_objective(self.C_obj_dense, self.Q_dense, self.QN_dense, self.R_dense, self.R0_dense, xr, self.z_init, self.u_init,
+                              self.const_offset_dense, self.cur_u[:, 0], self.N, self.nx, self.nu)
 
     def construct_constraint_matrix_(self, A_lst, B_lst):
         """
