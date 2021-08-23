@@ -155,7 +155,8 @@ class KoopmanNetCtrl(KoopmanNet):
         #y = x_prime_flat.T
         y = np.concatenate((x_flat.T, x_prime_flat.T - x_flat.T), axis=1)
 
-        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
+        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0), device=self.device)
+        #self.loss_scaler_z = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0), device=self.device)
         self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
