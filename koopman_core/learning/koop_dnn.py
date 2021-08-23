@@ -47,7 +47,7 @@ class KoopDnn():
         self.set_optimizer_()
 
         X_train, y_train = self.net.process(self.x_train, self.t_train, data_u=self.u_train)
-        X_val, y_val = self.net.process(self.x_val, self.t_val, data_u=self.u_val)
+        X_val, y_val = self.net.process(self.x_val, self.t_val, data_u=self.u_val, train_mode=False)
 
         if plot_data:
             self.plot_train_data_(X_train, y_train)
@@ -168,9 +168,9 @@ class KoopDnn():
         self.net.send_to(device)
 
         if u_test is None:
-            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)))
+            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)), train_mode=False)
         else:
-            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)), data_u=u_test)
+            X_test, y_test = self.net.process(x_test, np.tile(t_test, (x_test.shape[0], 1)), data_u=u_test, train_mode=False)
 
         X_t, y_t = torch.from_numpy(X_test).float(), torch.from_numpy(y_test).float()
         dataset_test = torch.utils.data.TensorDataset(X_t, y_t)

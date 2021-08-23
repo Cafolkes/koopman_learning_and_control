@@ -138,7 +138,7 @@ class KoopmanNetCtrl(KoopmanNet):
         except:
             pass
 
-    def process(self, data_x, t, data_u=None, downsample_rate=1):
+    def process(self, data_x, t, data_u=None, downsample_rate=1, train_mode=True):
         n = self.net_params['state_dim']
         m = self.net_params['ctrl_dim']
         n_fixed_states = self.net_params['n_fixed_states']
@@ -160,9 +160,10 @@ class KoopmanNetCtrl(KoopmanNet):
         #y = x_prime_flat.T
         y = np.concatenate((x_flat.T, x_prime_flat.T - x_flat.T), axis=1)
 
-        self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
-        #self.loss_scaler_z = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0), device=self.device)
-        self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
+        if train_mode:
+            self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
+            #self.loss_scaler_z = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0), device=self.device)
+            self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
 
