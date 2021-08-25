@@ -60,14 +60,13 @@ class KoopmanNet(nn.Module):
         alpha = self.net_params['lin_loss_penalty']
         criterion = nn.MSELoss()
 
-        proj_loss = criterion(x_proj, x)
-
         #pred_loss = criterion(x_prime_diff_pred, x_prime_diff/dt)
         #pred_loss = criterion(x_prime_pred, x_prime)
         if override_c:
             pred_loss = criterion(x_prime_diff_pred,
                                   torch.divide(x_prime_diff, self.loss_scaler_x[n_override_kinematics:n]))
         else:
+            proj_loss = criterion(x_proj, x)
             pred_loss = criterion(x_prime_diff_pred, x_prime_diff / self.loss_scaler_z)
 
 
@@ -79,7 +78,11 @@ class KoopmanNet(nn.Module):
             l1_reg = self.net_params['l1_reg']
             l1_loss = l1_reg*self.get_l1_norm_()
 
-        tot_loss = proj_loss + pred_loss + alpha*lin_loss + l1_loss
+        if override_c:
+            tot_loss = pred_loss + alpha*lin_loss + l1_loss
+        else:
+            tot_loss = proj_loss + pred_loss + alpha*lin_loss + l1_loss
+
         return tot_loss, pred_loss, alpha*lin_loss
 
     def construct_encoder_(self):

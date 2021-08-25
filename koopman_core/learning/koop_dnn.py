@@ -249,4 +249,21 @@ class KoopDnn():
         ax.view_init(30, 70)
         plt.show()
 
+    def plot_learning_curve(self):
+        import matplotlib.pyplot as plt
+
+        train_loss = np.array(self.train_loss_hist)  # [[total loss, prediction loss, bilinearity loss]]
+        val_loss = np.array(self.val_loss_hist)  # [[total loss, prediction loss, bilinearity loss]]
+        iter = np.arange(train_loss.shape[0])
+        titles = ['Total loss', 'Prediction loss', 'Bilinearity loss']
+        plt.figure(figsize=(16,5))
+        for ii in range(3):
+            plt.subplot(1,3,ii+1)
+            plt.plot(iter, train_loss[:, ii], label='training')
+            plt.plot(iter, val_loss[:, ii], '--', label='validation')
+            plt.title(titles[ii])
+            if ii == 2:
+                plt.legend()
+        plt.show()
+
 
