@@ -406,7 +406,7 @@ class NMPCTrajController(Controller):
         ueq = leq
 
         # Input constraints:
-        u_init_flat = self.u_init.flatten(order='F')  # TODO: Check flattening ok
+        u_init_flat = self.u_init.flatten(order='F')
         self.umin_tiled = np.tile(self.umin, self.N)
         self.umax_tiled = np.tile(self.umax, self.N)
         lineq_u = self.umin_tiled - u_init_flat
@@ -494,7 +494,7 @@ class NMPCTrajController(Controller):
         self.u_init_flat[-self.nu:] = u_new
 
         self.x_init = self.C_x @ self.z_init
-        self.x_init_flat = self.x_init.flatten(order='F') # TODO: Check flatten
+        self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
         du_new = self.du_flat[-self.nu:]

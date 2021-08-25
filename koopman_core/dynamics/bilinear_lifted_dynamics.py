@@ -1,3 +1,4 @@
+import numpy as np
 from numpy import dot, zeros, array, sum
 
 from ...core.dynamics import AffineDynamics, SystemDynamics
@@ -35,6 +36,10 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         self.C = C
         self.basis = basis
 
+        self.B_tensor = np.empty((self.m, self.n, self.n))
+        for ii, b in enumerate(self.B):
+            self.B_tensor[ii] = b
+
         self.continuous_mdl = continuous_mdl
         self.dt = dt
         self.standardizer_x = standardizer_x
@@ -48,7 +53,7 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         return dot(self.A, x)
 
     def act(self, x, t):
-        return array([b@x for b in self.B]).T
+        return (self.B_tensor@x).T
 
     def lift(self, x, u):
         return self.basis(x)

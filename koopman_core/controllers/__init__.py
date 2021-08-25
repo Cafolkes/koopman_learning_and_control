@@ -12,3 +12,5 @@ from .nonlinear_mpc_controller_numba import NonlinearMPCControllerNb
 from .bilinear_mpc_controller_numba import BilinearMPCControllerNb
 from .nmpc_traj_controller import NMPCTrajController
 from .nmpc_traj_controller_numba import NMPCTrajControllerNb
+from .bilinear_mpc_traj_controller import BilinearMPCTrajController
+from .bilinear_mpc_traj_controller_numba import BilinearMPCTrajControllerNb

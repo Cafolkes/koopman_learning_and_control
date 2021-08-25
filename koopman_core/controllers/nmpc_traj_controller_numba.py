@@ -136,6 +136,7 @@ class NMPCTrajControllerNb(Controller):
         self.sub_traj = []
 
         # Define dense copies of problem matrices for numba implementation:
+        self.C_x_dense = self.C_x.toarray().astype(float)
         self.C_obj_dense = self.C_obj.toarray().astype(float)
         self.Q_dense = self.Q.toarray()
         self.QN_dense = self.QN.toarray()
@@ -156,7 +157,7 @@ class NMPCTrajControllerNb(Controller):
         self.u_init = u_init
         self.cur_z = z_init
         self.cur_u = u_init
-        self.x_init = self.C_x @ z_init
+        self.x_init = self.C_x_dense @ z_init
         self.u_init_flat = self.u_init.flatten(order='F')
         self.x_init_flat = self.x_init.flatten(order='F')
         self.dz_flat = self.z_init.flatten(order='F')
@@ -236,7 +237,7 @@ class NMPCTrajControllerNb(Controller):
             t0 = time.time()
             u_prev = self.cur_u.copy()
             self.z_init = self.cur_z.copy()
-            self.x_init = (self.C_x @ self.z_init)
+            self.x_init = (self.C_x_dense @ self.z_init)
             self.u_init = self.cur_u.copy()
 
             # Update equality constraint matrices:
@@ -406,7 +407,7 @@ class NMPCTrajControllerNb(Controller):
         :param B_lst: (list(np.array)) List of dynamics matrices, B, for each timestep in the prediction horizon
         :return:
         """
-        C_data = [np.atleast_1d(self.C_x[np.nonzero(self.C_x[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
+        C_data = [np.atleast_1d(self.C_x_dense[np.nonzero(self.C_x_dense[:, i]), i].squeeze()).tolist() for i in range(self.nx)]
 
         # State variables:
         data = []
@@ -423,7 +424,7 @@ class NMPCTrajControllerNb(Controller):
 
         # Input variables:
         B_inds = []
-        start_ind_B = start_ind_A + self.nx + np.nonzero(self.C_x)[0].size - 1
+        start_ind_B = start_ind_A + self.nx + np.nonzero(self.C_x_dense)[0].size - 1
         for t in range(self.N):
             for i in range(self.nu):
                 data.append(np.hstack((B_lst[t][:, i], np.ones(1))))
@@ -560,7 +561,7 @@ class NMPCTrajControllerNb(Controller):
         self.u_init_flat[:-self.nu] = self.u_init_flat[self.nu:]
         self.u_init_flat[-self.nu:] = u_new
 
-        self.x_init = self.C_x @ self.z_init
+        self.x_init = self.C_x_dense @ self.z_init
         self.x_init_flat = self.x_init.flatten(order='F')
 
         # Warm start of OSQP:
