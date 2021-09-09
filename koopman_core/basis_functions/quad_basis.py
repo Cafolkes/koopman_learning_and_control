@@ -24,12 +24,12 @@ class QuadBasis(BasisFunctions):
 
     def construct_basis(self):
         poly_features = preprocessing.PolynomialFeatures(degree=self.poly_deg)
-        poly_features.fit(np.zeros((1, 6)))
-        poly_func = lambda x: poly_features.transform(np.hstack((x[:,3:6], x[:,9:12])))
-        sine_func = lambda x: np.concatenate((np.sin(x[:,3:6]),
-                                              np.cos(x[:,3:6]),
-                                              np.multiply(np.cos(x[:,5:6]), np.multiply(np.sin(x[:,4:5]), np.cos(x[:,3:4]))),
-                                              np.multiply(np.sin(x[:, 5:6]), np.sin(x[:,3:4])),
+        poly_features.fit(np.zeros((1, 12)))
+        poly_func = lambda x: poly_features.transform(x)
+        sine_func = lambda x: np.concatenate((np.sin(x[:, 3:6]),
+                                              np.cos(x[:, 3:6]),
+                                              np.multiply(np.cos(x[:, 5:6]), np.multiply(np.sin(x[:, 4:5]), np.cos(x[:, 3:4]))),
+                                              np.multiply(np.sin(x[:, 5:6]), np.sin(x[:, 3:4])),
                                               np.multiply(np.sin(x[:, 5:6]), np.multiply(np.sin(x[:, 4:5]), np.cos(x[:, 3:4]))),
                                               np.multiply(np.cos(x[:, 5:6]), np.sin(x[:, 3:4])),
                                               np.multiply(np.cos(x[:, 4:5]), np.cos(x[:, 3:4])),
@@ -41,11 +41,13 @@ class QuadBasis(BasisFunctions):
                                               self.basis_product_(x, poly_func, sine_func)))
             self.n_lift = 1 + self.n + poly_features.n_output_features_*sine_func(np.zeros((1,self.n))).shape[1]
         else:
-            self.basis = lambda x: np.hstack((np.ones((x.shape[0], 1)),
-                                              x,
-                                              poly_func(x),
-                                              sine_func(x)))
-            self.n_lift = 1 + self.n + poly_features.n_output_features_ + sine_func(np.zeros((1, self.n))).shape[1]
+            #self.basis = lambda x: np.hstack((np.ones((x.shape[0], 1)),
+            #                                  x,
+            #                                  poly_func(x),
+            #                                  sine_func(x)))
+            self.basis = lambda x: np.hstack((poly_func(x), sine_func(x)))
+            #self.n_lift = 1 + self.n + poly_features.n_output_features_ + sine_func(np.zeros((1, self.n))).shape[1]
+            self.n_lift = poly_features.n_output_features_ + sine_func(np.zeros((1, self.n))).shape[1]
 
     def basis_product_(self, x, basis_1, basis_2):
         basis_1_eval = basis_1(x)
