@@ -36,7 +36,7 @@
 
 # \begin{equation}
 # \mb D(\mb q) = \begin{bmatrix} 1 & 0\\ 0 &  \frac{1}{q_1+1} \end{bmatrix}, 
-# \qquad \mb C(\mb q, \mb{\dot{q}}) = -\begin{bmatrix} \lambda & 0 \\ \frac{1}{q_1 + 1}(2 \lambda - \mu) c \dot{q}_1 & \frac{1}{q_1 +1} \mu \end{bmatrix}, \qquad 
+# \qquad \mb C(\mb q, \mb{\dot{q}}) = -\begin{bmatrix} \lambda & 0 \\ \frac{1}{q_1 + 1}(2 \lambda - \mu) c \dot{q}sys_id_inertia_x_1 & \frac{1}{q_1 +1} \mu \end{bmatrix}, \qquad
 # \mb G(\mb q) = \begin{bmatrix} 0 \\ 0 \end{bmatrix} 
 # \qquad \mb B = \begin{bmatrix}1 & 0 \\ 0 & 1 \end{bmatrix},
 # \end{equation}
@@ -54,11 +54,11 @@
 #     \end{bmatrix}
 #     = \begin{bmatrix} 
 #     1\\
-#     q_1 - \frac{1}{\lambda}\dot{q}_1\\
-#     q_2 - \frac{1}{\mu} \dot{q}_2 + \frac{(2 \lambda - \mu)c}{2\lambda \mu} \dot{q}_1^2\\
-#     \dot{q}_1\\
-#     \dot{q}_2 - c \dot{q}_1^2\\
-#     \dot{q}_1^2\\
+#     q_1 - \frac{1}{\lambda}\dot{q}sys_id_inertia_x_1\\
+#     q_2 - \frac{1}{\mu} \dot{q}_2 + \frac{(2 \lambda - \mu)c}{2\lambda \mu} \dot{q}sys_id_inertia_x_1^2\\
+#     \dot{q}sys_id_inertia_x_1\\
+#     \dot{q}_2 - c \dot{q}sys_id_inertia_x_1^2\\
+#     \dot{q}sys_id_inertia_x_1^2\\
 #     \end{bmatrix},
 # \end{equation}
 
@@ -67,7 +67,7 @@
 # element is $F=\text{diag}(0, 0, \lambda, \mu, 2 \lambda, 0)$. Then, to reformulate the dynamics we have: 
 
 # \begin{equation} 
-# L_{\mb f_1} T(\mb q, \mb{\dot{q}}) = \begin{bmatrix} 0\\ -\frac{1}{\lambda}\\ \frac{(2\lambda - \mu)c}{\lambda \mu}\dot{q}_1\\ 1 \\ -2c\dot{q}_1 \\ 2\dot{q_1} \end{bmatrix}, \qquad 
+# L_{\mb f_1} T(\mb q, \mb{\dot{q}}) = \begin{bmatrix} 0\\ -\frac{1}{\lambda}\\ \frac{(2\lambda - \mu)c}{\lambda \mu}\dot{q}sys_id_inertia_x_1\\ 1 \\ -2c\dot{q}sys_id_inertia_x_1 \\ 2\dot{q_1} \end{bmatrix}, \qquad
 # L_{\mb f_2} T(\mb q, \mb{\dot{q}}) = \begin{bmatrix} 0 \\ 0\\ -\frac{1}{\mu}(q_1 + 1)\\0 \\ q_1 + 1 \\ 0 \end{bmatrix} 
 # \end{equation}
 

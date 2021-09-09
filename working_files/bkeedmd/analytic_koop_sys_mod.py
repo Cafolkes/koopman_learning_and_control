@@ -26,8 +26,8 @@ from koopman_core.learning import Edmd_aut, KoopDnn, KoopmanNetAut
 # Consider the continuous-time dynamics
 # 
 # \begin{equation}
-#     x = \begin{bmatrix} x_1\\x_2\\\dot{x}_1\\ \dot{x}_2 \end{bmatrix}, \qquad
-#     \begin{bmatrix} \dot{x}_1 \\ \dot{x}_2 \\ \dot{x}_3 \\ \dot{x}_4 \end{bmatrix}
+#     x = \begin{bmatrix} x_1\\x_2\\\dot{x}sys_id_inertia_x_1\\ \dot{x}_2 \end{bmatrix}, \qquad
+#     \begin{bmatrix} \dot{x}sys_id_inertia_x_1 \\ \dot{x}_2 \\ \dot{x}_3 \\ \dot{x}_4 \end{bmatrix}
 #     = \begin{bmatrix}
 #     x_3 \\ 
 #     x_4 \\
@@ -50,7 +50,7 @@ from koopman_core.learning import Edmd_aut, KoopDnn, KoopmanNetAut
 # 
 # \begin{equation}
 # \begin{bmatrix}
-# \dot{y}_1 \\ \dot{y}_2 \\ \dot{y}_3 \\ \dot{y}_4 \\ \dot{y}_5 \end{bmatrix} = 
+# \dot{y}sys_id_inertia_x_1 \\ \dot{y}_2 \\ \dot{y}_3 \\ \dot{y}_4 \\ \dot{y}_5 \end{bmatrix} =
 # \begin{bmatrix}
 # 0 & 0 & 1 & 0 & 0\\
 # 0 & 0 & 0 & 1 & 0\\
