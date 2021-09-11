@@ -60,7 +60,7 @@ class KoopDnn():
         self.train_model(dataset_train, dataset_val, print_epoch=print_epoch, tune_run=tune_run, early_stop=early_stop)
 
     def train_model(self, dataset_train, dataset_val, print_epoch=True, tune_run=False, early_stop=False,
-                    early_stop_crit=1e-3, early_stop_max_count=5, prune_threshold=1e-6):
+                    early_stop_crit=1e-3, early_stop_max_count=5, prune_threshold=1e-5):
         device = 'cpu'
         if torch.cuda.is_available():
             device = 'cuda:0'
@@ -86,7 +86,7 @@ class KoopDnn():
                 inputs, labels = data
                 inputs, labels = inputs.to(device), labels.to(device)
 
-                if epoch > int(self.net.net_params['epochs'] * 0.9):
+                if epoch > int(self.net.net_params['epochs'] * 0.8):
                     prune.global_unstructured(
                         self.net.parameters_to_prune, pruning_method=ThresholdPruning, threshold=prune_threshold
                     )
