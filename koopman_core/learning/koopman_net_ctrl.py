@@ -162,10 +162,10 @@ class KoopmanNetCtrl(KoopmanNet):
 
         if train_mode:
             self.loss_scaler_x = torch.Tensor(np.std(x_prime_flat[:n_fixed_states, :].T - x_flat[:n_fixed_states, :].T, axis=0))
-            #self.loss_scaler_x = torch.ones_like(self.loss_scaler_x)  # TODO: Remove
+            self.loss_scaler_x = torch.ones_like(self.loss_scaler_x)  # TODO: Remove
             #self.loss_scaler_z = torch.Tensor(np.std(x_prime_flat.T - x_flat.T, axis=0), device=self.device)
             self.loss_scaler_z = np.std(x_prime_flat.T - x_flat.T)
-            #self.loss_scaler_z = 1 # TODO: Remove
+            self.loss_scaler_z = 1 # TODO: Remove
 
         return X[::downsample_rate,:], y[::downsample_rate,:]
 

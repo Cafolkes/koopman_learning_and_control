@@ -100,12 +100,16 @@ class NMPCTrajControllerNb(Controller):
         self.R = R
         self.R0 = R0
         self.N = N
-        self.xmin = xmin
-        self.xmax = xmax
-        self.umin = umin
-        self.umax = umax
+        self.xmin = np.array(xmin)
+        self.xmax = np.array(xmax)
+        self.umin = np.array(umin)
+        self.umax = np.array(umax)
 
-        if const_offset is None:
+        if self.dynamics_object.standardizer_u is not None:
+            self.const_offset = self.dynamics_object.standardizer_u.mean_.reshape(-1, 1)
+            self.umin = self.dynamics_object.standardizer_u.transform(self.umin.reshape(1,-1)).squeeze()
+            self.umax = self.dynamics_object.standardizer_u.transform(self.umax.reshape(1,-1)).squeeze()
+        elif const_offset is None:
             self.const_offset = np.zeros((self.nu, 1))
         else:
             self.const_offset = const_offset
@@ -290,7 +294,10 @@ class NMPCTrajControllerNb(Controller):
                                                                        self.N)
         self.comp_time.append(time.time() - t0)
 
-        return self.cur_u[:, 0]
+        if self.dynamics_object.standardizer_u is None:
+            return self.cur_u[:, 0]
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u[:, 0])
 
     def prepare_eval(self, t):
         t0 = time.time()
