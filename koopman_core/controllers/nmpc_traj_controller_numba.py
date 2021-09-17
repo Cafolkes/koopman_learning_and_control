@@ -299,9 +299,10 @@ class NMPCTrajControllerNb(Controller):
         else:
             return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u[:, 0])
 
-    def prepare_eval(self, t):
+    def prepare_eval(self, t, update_initial_guess=True):
         t0 = time.time()
-        self.update_initial_guess_()
+        if update_initial_guess:
+            self.update_initial_guess_()
         self.update_objective_(t)
         self.update_linearization_()
         self.update_constraint_matrix_data_()
