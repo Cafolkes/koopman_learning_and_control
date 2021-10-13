@@ -1,5 +1,5 @@
 from numpy import dot, zeros, array
-from ...core.dynamics import AffineDynamics, LinearizableDynamics, SystemDynamics
+from core.dynamics import AffineDynamics, LinearizableDynamics, SystemDynamics
 
 class LinearLiftedDynamics(SystemDynamics, AffineDynamics, LinearizableDynamics):
     """Class for linear dynamics of the form x_dot = A * x + B * u."""

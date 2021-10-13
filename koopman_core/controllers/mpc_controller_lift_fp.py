@@ -6,7 +6,7 @@ import scipy as sp
 import scipy.sparse as sparse
 import osqp
 import matplotlib.pyplot as plt
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 
 def block_diag(M,n):
   """bd creates a sparse block diagonal matrix by repeating M n times

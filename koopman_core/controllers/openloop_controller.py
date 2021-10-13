@@ -1,4 +1,4 @@
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 from numpy import array, interp, atleast_1d
 class OpenLoopController(Controller):
     """Class for open loop action policies."""

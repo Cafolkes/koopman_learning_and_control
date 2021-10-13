@@ -8,7 +8,7 @@ import osqp
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 
 
 def block_diag(M,n):

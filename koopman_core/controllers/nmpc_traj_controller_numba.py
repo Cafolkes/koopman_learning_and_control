@@ -6,8 +6,8 @@ from scipy import sparse
 import importlib
 from numba import njit
 
-from ...core.controllers.controller import Controller
-from ..dynamics import BilinearLiftedDynamics
+from core.controllers.controller import Controller
+from koopman_core.dynamics import BilinearLiftedDynamics
 
 
 @njit(fastmath=True, cache=True)

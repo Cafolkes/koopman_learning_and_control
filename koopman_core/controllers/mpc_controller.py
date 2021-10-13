@@ -2,7 +2,7 @@ import numpy as np
 import scipy.sparse as sparse
 from scipy.signal import cont2discrete
 import osqp
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 
 class MPCController(Controller):
     """

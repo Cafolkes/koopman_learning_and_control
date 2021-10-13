@@ -2,8 +2,8 @@ from matplotlib.pyplot import figure
 from mpl_toolkits.mplot3d import Axes3D
 from numpy import append, arange, arctan, array, concatenate, cos, reshape, sin, zeros
 
-from ...core.dynamics import FBLinDynamics, RoboticDynamics, SystemDynamics
-from ...core.util import default_fig
+from core.dynamics import FBLinDynamics, RoboticDynamics, SystemDynamics
+from core.util import default_fig
 
 class PlanarQuadrotorForceInput(RoboticDynamics):
     def __init__(self, m, J, b, g=9.81):
