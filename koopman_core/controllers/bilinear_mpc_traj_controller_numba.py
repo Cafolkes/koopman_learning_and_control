@@ -1,6 +1,6 @@
 import numpy as np
 
-from ..controllers import NMPCTrajControllerNb
+from koopman_core.controllers import NMPCTrajControllerNb
 from numba import njit
 
 @njit(fastmath=True, cache=True)

@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import dot, zeros, array, sum
 
-from ...core.dynamics import AffineDynamics, SystemDynamics
+from core.dynamics import AffineDynamics, SystemDynamics
 
 
 class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):

@@ -1,7 +1,7 @@
 from numpy import dot, concatenate, zeros
 from numpy.linalg import solve
 
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 
 class BilinearFBLinController(Controller):
     """Class for bilinear linearizing feedback policies."""

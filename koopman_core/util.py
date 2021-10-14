@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import random as rand
 from sklearn import preprocessing
-from ..core.dynamics import ConfigurationDynamics
-from ..core.controllers import ConstantController, PDController
-from ..koopman_core.controllers import PerturbedController, OpenLoopController
+from core.dynamics import ConfigurationDynamics
+from core.controllers import ConstantController, PDController
+from koopman_core.controllers import PerturbedController, OpenLoopController
 
 class KoopPdOutput(ConfigurationDynamics):
     def __init__(self, dynamics, xd, n, m):

@@ -1,7 +1,7 @@
 import cvxpy as cvx
 import time
 
-from ...core.controllers.controller import Controller
+from core.controllers.controller import Controller
 
 class LinearMpcController(Controller):
 

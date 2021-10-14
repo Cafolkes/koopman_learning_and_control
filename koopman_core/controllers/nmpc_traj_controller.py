@@ -5,8 +5,8 @@ import osqp
 from scipy import sparse
 import importlib
 
-from ...core.controllers.controller import Controller
-from ..dynamics import BilinearLiftedDynamics
+from core.controllers.controller import Controller
+from koopman_core.dynamics import BilinearLiftedDynamics
 
 
 class NMPCTrajController(Controller):

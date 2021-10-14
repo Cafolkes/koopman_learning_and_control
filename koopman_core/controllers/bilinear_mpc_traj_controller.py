@@ -1,6 +1,6 @@
 import numpy as np
 
-from ..controllers import NMPCTrajController
+from koopman_core.controllers import NMPCTrajController
 
 
 class BilinearMPCTrajController(NMPCTrajController):

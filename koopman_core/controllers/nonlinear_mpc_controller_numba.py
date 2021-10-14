@@ -6,8 +6,8 @@ from scipy import sparse
 import importlib
 from numba import jit
 
-from ...core.controllers.controller import Controller
-from ..dynamics import BilinearLiftedDynamics
+from core.controllers.controller import Controller
+from koopman_core.dynamics import BilinearLiftedDynamics
 
 @jit(nopython=True)
 def _update_objective(C, Q, QN, R, xr, x_init, u_init, const_offset, nx, nu, N):
