@@ -16,7 +16,7 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
     """
 
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, C_x, C_obj, Q, R, QN, R0, xr, solver_settings,
-                 terminal_constraint=False, add_slack=False, q_slack=1e-4, standardizer_x=None, standardizer_u=None):
+                 terminal_constraint=False, add_slack=False, q_slack=1e-4):
 
         const_offset = None
         if standardizer_u is not None:
@@ -39,8 +39,6 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
         #self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B])
         self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B]).T # TODO: Verify
         self.B_arr = np.vstack(self.dynamics_object.B) # TODO: Verify
-        self.standardizer_x = standardizer_x
-        self.standardizer_u = standardizer_u
 
     def update_linearization_(self):
         self.A_stacked, self.B_stacked = update_linearization_AB(self.A_flat, self.B_flat, self.B_arr, self.z_init,
@@ -51,13 +49,13 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
     def eval(self, x, t):
         u = super(BilinearMPCTrajControllerNb, self).eval(x, t)
 
-        if self.standardizer_u is not None:
-            return self.standardizer_u.inverse_transform(u.reshape(1,-1)).squeeze()
+        if self.dynamics_object.standardizer_u is not None:
+            return self.dynamics_object.standardizer_u.inverse_transform(u.reshape(1,-1)).squeeze()
         else:
             return u
 
     def get_control_prediction(self):
-        if self.standardizer_u is not None:
-            return self.standardizer_u.inverse_transform(self.cur_u)
+        if self.dynamics_object.standardizer_u is not None:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)
         else:
             return self.cur_u

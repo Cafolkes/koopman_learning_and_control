@@ -116,8 +116,12 @@ class NonlinearMPCControllerNb(Controller):
         self.umin = umin
         self.umax = umax
 
-        if const_offset is None:
-            self.const_offset = np.zeros((self.nu,1))
+        if self.dynamics_object.standardizer_u is not None:
+            self.const_offset = self.dynamics_object.standardizer_u.mean_.reshape(-1, 1)
+            self.umin = self.dynamics_object.standardizer_u.transform(self.umin.reshape(1, -1)).squeeze()
+            self.umax = self.dynamics_object.standardizer_u.transform(self.umax.reshape(1, -1)).squeeze()
+        elif const_offset is None:
+            self.const_offset = np.zeros((self.nu, 1))
         else:
             self.const_offset = const_offset
 
@@ -147,7 +151,10 @@ class NonlinearMPCControllerNb(Controller):
         """
         z0 = z_init[0, :]
         self.z_init = z_init
-        self.u_init = u_init
+        if self.dynamics_object.standardizer_u is None:
+            self.u_init = u_init
+        else:
+            self.u_init = self.dynamics_object.standardizer_u.inverse_transform(u_init)
         self.x_init = self.C @ z_init.T
         self.u_init_flat = self.u_init.flatten()
         self.x_init_flat = self.x_init.flatten(order='F')
@@ -219,7 +226,10 @@ class NonlinearMPCControllerNb(Controller):
         """
         iter = 0
         self.cur_z = z_init_0
-        self.cur_u = u_init_0
+        if self.dynamics_object.standardizer_u is None:
+            self.cur_u = u_init_0
+        else:
+            self.cur_u = self.dynamics_object.standardizer_u.inverse_transform(u_init_0)
         u_prev = np.zeros_like(u_init_0)
 
         while (iter == 0 or np.linalg.norm(u_prev - self.cur_u) / np.linalg.norm(u_prev) > eps) and iter < max_iter:
@@ -278,7 +288,10 @@ class NonlinearMPCControllerNb(Controller):
         self.prep_time.append(t_prep)
         self.qp_time.append(self.comp_time[-1] - t_prep)
 
-        return self.cur_u[0, :]
+        if self.dynamics_object.standardizer_u is None:
+            return self.cur_u[0, :]
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u[0, :])
 
     def construct_objective_(self):
         """
@@ -539,11 +552,17 @@ class NonlinearMPCControllerNb(Controller):
         Get the state prediction from the MPC problem
         :return: Z (np.array) current state prediction
         """
-        return self.cur_z
+        if self.dynamics_object.standardizer_x is None:
+            return (self.dynamics_object.C@self.cur_z.T).T
+        else:
+            return self.dynamics_object.standardizer_x.inverse_transform(self.dynamics_object.C@self.cur_z.T).T
 
     def get_control_prediction(self):
         """
         Get the control prediction from the MPC problem
         :return: U (np.array) current control prediction
         """
-        return self.cur_u
+        if self.dynamics_object.standardizer_u is None:
+            return self.cur_u
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)

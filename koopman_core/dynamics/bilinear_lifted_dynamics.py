@@ -56,7 +56,10 @@ class BilinearLiftedDynamics(SystemDynamics, AffineDynamics):
         return (self.B_tensor@x).T
 
     def lift(self, x, u):
-        return self.basis(x)
+        if self.standardizer_x is None:
+            return self.basis(x)
+        else:
+            return self.basis(self.standardizer_x.transform(x))
 
     def get_linearization(self, z0, z1, u0, t):
         A_lin = self.A + sum(array([b*u for b,u in zip(self.B, u0)]),axis=0)

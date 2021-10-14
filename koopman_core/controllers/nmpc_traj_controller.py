@@ -57,7 +57,11 @@ class NMPCTrajController(Controller):
         self.umin = umin
         self.umax = umax
 
-        if const_offset is None:
+        if self.dynamics_object.standardizer_u is not None:
+            self.const_offset = self.dynamics_object.standardizer_u.mean_.reshape(-1, 1)
+            self.umin = self.dynamics_object.standardizer_u.transform(self.umin.reshape(1, -1)).squeeze()
+            self.umax = self.dynamics_object.standardizer_u.transform(self.umax.reshape(1, -1)).squeeze()
+        elif const_offset is None:
             self.const_offset = np.zeros((self.nu, 1))
         else:
             self.const_offset = const_offset
@@ -230,7 +234,10 @@ class NMPCTrajController(Controller):
         self.u_init_flat = self.u_init_flat + self.du_flat
         self.comp_time.append(time.time() - t0)
 
-        return self.cur_u[:, 0]
+        if self.dynamics_object.standardizer_u is None:
+            return self.cur_u[:, 0]
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u[:, 0])
 
     def prepare_eval(self, t):
         t0 = time.time()
