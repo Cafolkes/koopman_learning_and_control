@@ -46,14 +46,18 @@ class BilinearMPCControllerNb(NonlinearMPCControllerNb):
 
         return A_lst_flat, B_lst_flat
 
-    def update_linearization_old(self):
-        A_lst = self.u_init @ self.B_flat + self.A_flat
-        A_lst_flat = A_lst.flatten()
-        B_lst_flat = (self.z_init[:-1, :] @ self.B_arr).flatten()
+    def get_state_prediction(self):
+        """
+        Get the state prediction from the MPC problem
+        :return: Z (np.array) current state prediction
+        """
+        if self.dynamics_object.standardizer_x is None:
+            return (self.dynamics_object.C@self.cur_z.T).T
+        else:
+            return self.dynamics_object.standardizer_x.inverse_transform((self.dynamics_object.C@self.cur_z.T).T)
 
-        # TODO: (Comp time optimzation) Try to further improve calculation of r_vec
-        A_reshaped = A_lst.reshape(self.nx * self.N, self.nx)
-        self.r_vec[:] = (np.array([self.z_init[i, :] @ A_reshaped[i * self.nx:(i + 1) * self.nx, :]
-                                   for i in range(self.N)]) - self.z_init[1:, :]).flatten()
-
-        return A_lst_flat, B_lst_flat
+    def get_control_prediction(self):
+        if self.dynamics_object.standardizer_u is None:
+            return self.cur_u
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)

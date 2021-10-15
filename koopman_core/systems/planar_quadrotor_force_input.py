@@ -9,6 +9,8 @@ class PlanarQuadrotorForceInput(RoboticDynamics):
     def __init__(self, m, J, b, g=9.81):
         RoboticDynamics.__init__(self, 3,    2)
         self.params = m, J, b, g
+        self.standardizer_u = None
+        self.standardizer_x = None
 
     def D(self, q):
         m, J, b, _ = self.params

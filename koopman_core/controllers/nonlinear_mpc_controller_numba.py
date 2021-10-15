@@ -111,10 +111,17 @@ class NonlinearMPCControllerNb(Controller):
         self.QN = QN
         self.R = R
         self.N = N
+        assert xr.ndim == 1, 'Desired trajectory not supported'
+        self.xr = xr
         self.xmin = xmin
         self.xmax = xmax
         self.umin = umin
         self.umax = umax
+
+        if self.dynamics_object.standardizer_x is not None:
+            self.xr = self.dynamics_object.standardizer_x.transform(self.xr.reshape(1,-1)).squeeze()
+            self.xmin = self.dynamics_object.standardizer_x.transform(self.xmin.reshape(1,-1)).squeeze()
+            self.xmax = self.dynamics_object.standardizer_x.transform(self.xmax.reshape(1,-1)).squeeze()
 
         if self.dynamics_object.standardizer_u is not None:
             self.const_offset = self.dynamics_object.standardizer_u.mean_.reshape(-1, 1)
@@ -125,8 +132,6 @@ class NonlinearMPCControllerNb(Controller):
         else:
             self.const_offset = const_offset
 
-        assert xr.ndim == 1, 'Desired trajectory not supported'
-        self.xr = xr
         self.ns = xr.shape[0]
         self.terminal_constraint = terminal_constraint
 
@@ -552,17 +557,11 @@ class NonlinearMPCControllerNb(Controller):
         Get the state prediction from the MPC problem
         :return: Z (np.array) current state prediction
         """
-        if self.dynamics_object.standardizer_x is None:
-            return (self.dynamics_object.C@self.cur_z.T).T
-        else:
-            return self.dynamics_object.standardizer_x.inverse_transform(self.dynamics_object.C@self.cur_z.T).T
+        return self.cur_z
 
     def get_control_prediction(self):
         """
         Get the control prediction from the MPC problem
         :return: U (np.array) current control prediction
         """
-        if self.dynamics_object.standardizer_u is None:
-            return self.cur_u
-        else:
-            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)
+        return self.cur_u

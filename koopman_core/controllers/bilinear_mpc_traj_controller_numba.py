@@ -18,17 +18,6 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
     def __init__(self, dynamics, N, dt, umin, umax, xmin, xmax, C_x, C_obj, Q, R, QN, R0, xr, solver_settings,
                  terminal_constraint=False, add_slack=False, q_slack=1e-4):
 
-        const_offset = None
-        if standardizer_u is not None:
-            umin = standardizer_u.transform(umin.reshape(1,-1)).squeeze()
-            umax = standardizer_u.transform(umax.reshape(1,-1)).squeeze()
-            if standardizer_u.with_mean:
-                const_offset = standardizer_u.mean_
-        if standardizer_x is not None:
-            xmin = standardizer_x.transform(xmin.reshape(1,-1)).squeeze()
-            xmax = standardizer_x.transform(xmax.reshape(1,-1)).squeeze()
-            xr = standardizer_x.transform(xr.reshape(1,-1)).squeeze()
-
         super(BilinearMPCTrajControllerNb, self).__init__(dynamics, N, dt, umin, umax, xmin, xmax, C_x, C_obj, Q, R, QN,
                                                           R0, xr, solver_settings, const_offset = None,
                                                           terminal_constraint = terminal_constraint,
@@ -37,8 +26,8 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
         self.embed_pkg_str = 'knmpc_' + str(self.nx) + '_' + str(self.nu) + '_' + str(self.N)
         self.A_flat = self.dynamics_object.A.flatten(order='F').reshape(-1,1)
         #self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B])
-        self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B]).T # TODO: Verify
-        self.B_arr = np.vstack(self.dynamics_object.B) # TODO: Verify
+        self.B_flat = np.array([b.flatten(order='F') for b in self.dynamics_object.B]).T
+        self.B_arr = np.vstack(self.dynamics_object.B)
 
     def update_linearization_(self):
         self.A_stacked, self.B_stacked = update_linearization_AB(self.A_flat, self.B_flat, self.B_arr, self.z_init,
@@ -54,8 +43,19 @@ class BilinearMPCTrajControllerNb(NMPCTrajControllerNb):
         else:
             return u
 
-    def get_control_prediction(self):
-        if self.dynamics_object.standardizer_u is not None:
-            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)
+    def get_state_prediction(self):
+        """
+        Get the state prediction from the MPC problem
+        :return: Z (np.array) current state prediction
+        """
+        if self.dynamics_object.standardizer_x is None:
+            return (self.dynamics_object.C@self.cur_z.T).T
         else:
+            return self.dynamics_object.standardizer_x.inverse_transform(self.dynamics_object.C@self.cur_z.T).T
+
+    def get_control_prediction(self):
+        if self.dynamics_object.standardizer_u is None:
             return self.cur_u
+        else:
+            return self.dynamics_object.standardizer_u.inverse_transform(self.cur_u)
+
