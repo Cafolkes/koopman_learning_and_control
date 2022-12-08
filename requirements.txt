@@ -1,5 +1,5 @@
 backcall @ file:///home/ktietz/src/ci/backcall_1611930011877/work
-certifi==2020.12.5
+certifi==2022.12.7
 cvxpy @ file:///home/conda/feedstock_root/build_artifacts/cvxpy-split_1614935470104/work
 cycler==0.10.0
 decorator @ file:///home/ktietz/src/ci/decorator_1611930055503/work
